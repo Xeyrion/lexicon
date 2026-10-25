@@ -6,7 +6,7 @@ import type { Plugin } from 'vite'
 
 const APP_ID = 'lexicon'
 const SCHEMA_VERSION = 1
-const KINDS = ['study', 'reader', 'reader-progress', 'library'] as const
+const KINDS = ['study', 'reader', 'reader-progress', 'library', 'stories'] as const
 const KEEP_BACKUPS = 30
 const DEFAULT_MAX_IMPORT_MB = 64
 const MIN_MAX_IMPORT_MB = 8
@@ -278,7 +278,7 @@ async function ensureDailyBackup(kind: Kind): Promise<void> {
 }
 
 const BACKUP_NAME_PATTERN =
-  /^(reader-progress|library|reader|study)-(\d{4}-\d{2}-\d{2})(?:-[a-z0-9-]+)?\.json$/
+  /^(reader-progress|library|stories|reader|study)-(\d{4}-\d{2}-\d{2})(?:-[a-z0-9-]+)?\.json$/
 
 function timeStamp(date = new Date()): string {
   const hours = `${date.getHours()}`.padStart(2, '0')
@@ -359,6 +359,7 @@ function emptyBackupInfo(): BackupInfo {
       reader: { count: 0, bytes: 0 },
       'reader-progress': { count: 0, bytes: 0 },
       library: { count: 0, bytes: 0 },
+      stories: { count: 0, bytes: 0 },
     },
   }
 }

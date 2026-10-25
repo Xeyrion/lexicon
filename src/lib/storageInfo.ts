@@ -2,7 +2,7 @@ const STORAGE_ENDPOINT = '/api/storage'
 const STATUS_TIMEOUT_MS = 1500
 const LIST_TIMEOUT_MS = 3000
 const MUTATION_TIMEOUT_MS = 20_000
-const KINDS = ['study', 'reader', 'reader-progress', 'library'] as const
+const KINDS = ['study', 'reader', 'reader-progress', 'library', 'stories'] as const
 
 export type StorageKind = (typeof KINDS)[number]
 

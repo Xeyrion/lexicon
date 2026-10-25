@@ -149,25 +149,29 @@ body::before {
   color: var(--ink);
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
+/* Element resets must live in the base layer: unlayered rules outrank every
+   Tailwind utility, which silently killed `text-*` classes on links. */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
 
-button {
-  cursor: pointer;
-}
+  button {
+    cursor: pointer;
+  }
 
-button:disabled {
-  cursor: not-allowed;
+  button:disabled {
+    cursor: not-allowed;
+  }
 }
 
 :focus-visible {

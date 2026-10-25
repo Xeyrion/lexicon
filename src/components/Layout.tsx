@@ -40,7 +40,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/', label: '今日', icon: Home },
   { to: '/study', label: '学习', icon: BookOpen },
-  { to: '/read', label: '阅读', icon: BookOpenText, also: ['/library'] },
+  { to: '/read', label: '阅读', icon: BookOpenText, also: ['/library', '/stories'] },
   { to: '/books', label: '词书', icon: Library },
   { to: '/stats', label: '统计', icon: BarChart3 },
   { to: '/settings', label: '设置', icon: Settings },

@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useLibraryStore } from '../store/libraryStore'
+import { useStoryStore } from '../store/storyStore'
 import { useReaderProgressStore } from '../store/readerProgressStore'
 import { useReaderStore } from '../store/readerStore'
 import { setHydrationWriteBlocked } from './storage'
@@ -59,6 +60,10 @@ export function useReaderHydrated(): boolean {
   }, [hydrated])
 
   return hydrated || timedOut
+}
+
+export function waitForStoriesHydration(timeoutMs = 4000): Promise<boolean> {
+  return waitForStore(useStoryStore, timeoutMs)
 }
 
 export function waitForLibraryHydration(timeoutMs = 4000): Promise<boolean> {

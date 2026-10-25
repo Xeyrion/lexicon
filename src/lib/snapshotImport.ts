@@ -7,11 +7,15 @@ import type {
   ReaderArticle,
   ReaderSettings,
   Settings,
+  Story,
+  StoryMeta,
+  StorySave,
 } from '../types'
 import {
   isPlainObject,
   sanitizeBookId,
   sanitizeBooks,
+  sanitizeStories,
   sanitizeDays,
   sanitizePersonalWords,
   sanitizeProgress,
@@ -37,6 +41,11 @@ export interface ParsedSnapshot {
   study: ParsedStudySnapshot
   reader?: ParsedReaderSnapshot
   library?: { books: Book[] }
+  stories?: {
+    stories: Story[]
+    saves?: Record<string, StorySave>
+    meta?: Record<string, StoryMeta>
+  }
 }
 
 export interface SnapshotDefaults {
@@ -102,7 +111,27 @@ export function parseSnapshot(
     library = { books }
   }
 
-  return { ok: true, value: { study, reader, library } }
+  let stories: ParsedSnapshot['stories']
+  if (data.stories !== undefined) {
+    if (!isPlainObject(data.stories) || !Array.isArray(data.stories.stories)) {
+      return { ok: false, error: '备份中的故事内容不完整。' }
+    }
+    const parsedStories = sanitizeStories(data.stories.stories)
+    if (data.stories.stories.length > 0 && parsedStories.length === 0) {
+      return { ok: false, error: '备份中的故事内容不完整。' }
+    }
+    stories = {
+      stories: parsedStories,
+      ...(isPlainObject(data.stories.saves)
+        ? { saves: data.stories.saves as ParsedSnapshot['stories'] extends { saves?: infer S } ? S : never }
+        : {}),
+      ...(isPlainObject(data.stories.meta)
+        ? { meta: data.stories.meta as ParsedSnapshot['stories'] extends { meta?: infer M } ? M : never }
+        : {}),
+    }
+  }
+
+  return { ok: true, value: { study, reader, library, stories } }
 }
 
 export function readerProgressItems(
@@ -128,6 +157,21 @@ export function buildReaderPayload(reader: ParsedReaderSnapshot): unknown {
     state: {
       articles: reader.articles,
       settings: reader.settings,
+    },
+    version: 1,
+  }
+}
+
+export function buildStoriesPayload(stories: {
+  stories: Story[]
+  saves?: Record<string, StorySave>
+  meta?: Record<string, StoryMeta>
+}): unknown {
+  return {
+    state: {
+      stories: stories.stories,
+      ...(stories.saves ? { saves: stories.saves } : {}),
+      ...(stories.meta ? { meta: stories.meta } : {}),
     },
     version: 1,
   }

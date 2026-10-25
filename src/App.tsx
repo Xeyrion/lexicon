@@ -11,6 +11,8 @@ const Library = lazy(() => import('./pages/Library'))
 const ImportBook = lazy(() => import('./pages/ImportBook'))
 const BookDetail = lazy(() => import('./pages/BookDetail'))
 const EditChapter = lazy(() => import('./pages/EditChapter'))
+const Stories = lazy(() => import('./pages/Stories'))
+const StoryReader = lazy(() => import('./pages/StoryReader'))
 const EditArticle = lazy(() => import('./pages/EditArticle'))
 const Reader = lazy(() => import('./pages/Reader'))
 const Books = lazy(() => import('./pages/Books'))
@@ -89,6 +91,8 @@ export default function App() {
               <Route path="read/:articleId/edit" element={<EditArticle />} />
               <Route path="read/:articleId" element={<Reader />} />
               <Route path="books" element={<Books />} />
+              <Route path="stories" element={<Stories />} />
+              <Route path="stories/:storyId" element={<StoryReader />} />
               <Route path="stats" element={<Stats />} />
               <Route path="settings" element={<Settings />} />
               <Route path="*" element={<Navigate to="/" replace />} />

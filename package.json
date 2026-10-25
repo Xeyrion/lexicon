@@ -19,7 +19,10 @@
     "test:watch": "vitest",
     "smoke:reader": "node scripts/smoke-reader.mjs",
     "smoke:app": "node scripts/smoke-app.mjs",
-    "smoke:books": "node scripts/smoke-books.mjs"
+    "smoke:books": "node scripts/smoke-books.mjs",
+    "smoke:stories": "node scripts/smoke-stories.mjs",
+    "story:check": "node scripts/story-tools.mjs check",
+    "story:map": "node scripts/story-tools.mjs map"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.3.0",

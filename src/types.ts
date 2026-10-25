@@ -119,9 +119,77 @@ export interface LibrarySnapshot {
   books: Book[]
 }
 
+export type StoryVarValue = string | number | boolean
+
+export type StoryCondition =
+  | { var: string; is: StoryVarValue }
+  | { var: string; gte: number }
+  | { var: string; lte: number }
+  | { all: StoryCondition[] }
+  | { any: StoryCondition[] }
+  | { not: StoryCondition }
+
+export type StoryEffect =
+  | { var: string; set: StoryVarValue }
+  | { var: string; add: number }
+
+export interface StoryChoice {
+  id: string
+  label: string
+  to: string
+  requires?: StoryCondition[]
+  effects?: StoryEffect[]
+}
+
+export interface StoryVariant {
+  when: StoryCondition[]
+  text: string
+}
+
+export interface StoryNode {
+  id: string
+  text: string
+  variants?: StoryVariant[]
+  choices?: StoryChoice[]
+  ending?: string
+}
+
+export interface StoryEnding {
+  id: string
+  name: string
+  hint?: string
+  hidden?: boolean
+}
+
+export interface Story {
+  id: string
+  title: string
+  author: string
+  level?: string
+  description?: string
+  start: string
+  initialVars: Record<string, StoryVarValue>
+  endings: StoryEnding[]
+  nodes: StoryNode[]
+}
+
+export interface StorySave {
+  nodeId: string
+  vars: Record<string, StoryVarValue>
+  visited: string[]
+  /** Snapshot before each choice, so undo restores vars too. */
+  history: { nodeId: string; choiceId: string; vars: Record<string, StoryVarValue> }[]
+  updatedAt: string
+}
+
+export interface StoryMeta {
+  unlockedEndings: string[]
+  runs: number
+}
+
 export interface Snapshot {
   app: 'lexicon'
-  version: 1 | 2 | 3
+  version: 1 | 2 | 3 | 4
   exportedAt: string
   settings: Settings
   currentBookId: string
@@ -130,6 +198,11 @@ export interface Snapshot {
   personalWords: PersonalWord[]
   reader?: ReaderSnapshot
   library?: LibrarySnapshot
+  stories?: {
+    stories: Story[]
+    saves?: Record<string, StorySave>
+    meta?: Record<string, StoryMeta>
+  }
 }
 
 export type SessionStage = 'new' | 'review' | 'learning' | 'relearning'
