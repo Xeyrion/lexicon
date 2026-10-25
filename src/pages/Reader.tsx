@@ -12,7 +12,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { HoverPreview } from '../components/reader/HoverPreview'
 import { ReaderProgress, type ReaderProgressStore } from '../components/reader/ReaderProgress'
-import { ReaderText } from '../components/reader/ReaderText'
+import { ReaderText, ReaderTitle } from '../components/reader/ReaderText'
 import { SelectionAction } from '../components/reader/SelectionAction'
 import { WordPanel } from '../components/reader/WordPanel'
 import type { ReaderLookup, ReaderRect } from '../components/reader/types'
@@ -23,7 +23,7 @@ import { useReaderHydrated } from '../lib/useReaderHydrated'
 import { useAppStore } from '../store/appStore'
 import { useReaderStore } from '../store/readerStore'
 import { useReaderProgressStore } from '../store/readerProgressStore'
-import type { ReaderArticle, WordEntry } from '../types'
+import type { ReaderAnchor, ReaderArticle, WordEntry } from '../types'
 
 interface HoverState {
   word: string
@@ -62,6 +62,32 @@ function createReaderProgressStore(initialProgress: number): ReaderProgressStore
   }
 }
 
+/** Restoring puts the anchor token this far below the viewport top. */
+const ANCHOR_OFFSET = 96
+
+/**
+ * Finds the first word the reader can actually see. Probing by point beats
+ * walking every token: one layout read per frame instead of hundreds.
+ */
+function readAnchor(container: HTMLElement): ReaderAnchor | null {
+  const rect = container.getBoundingClientRect()
+  const x = rect.left + rect.width / 2
+  if (x < 0 || x > window.innerWidth) return null
+  const start = Math.max(rect.top, ANCHOR_OFFSET)
+  for (let y = start + 12; y < start + 160; y += 24) {
+    if (y > window.innerHeight) break
+    const element = document.elementFromPoint(x, y)
+    const word = element?.closest<HTMLElement>('[data-word]')
+    if (!word) continue
+    const paragraph = Number(word.dataset.paragraph)
+    const token = Number(word.dataset.token)
+    if (Number.isInteger(paragraph) && Number.isInteger(token) && token >= 0) {
+      return { paragraph, token }
+    }
+  }
+  return null
+}
+
 /**
  * 在 rAF 中测量文章滚动进度，只写入独立 store（百分比变化时才通知进度条），
  * 避免每帧重渲染整个阅读页。
@@ -70,7 +96,7 @@ function useReaderProgressTracker(
   store: ReaderProgressStore,
   articleRef: RefObject<HTMLElement | null>,
   initialProgress: number,
-  onProgress: (progress: number) => void,
+  onProgress: (progress: number, anchor: ReaderAnchor | null) => void,
 ) {
   useEffect(() => {
     let frame = 0
@@ -82,7 +108,7 @@ function useReaderProgressTracker(
       const total = rect.height - window.innerHeight
       // 不足一屏的短文直接视为读完，避免永远停在 0%。
       const progress = total <= 0 ? 1 : Math.min(1, Math.max(0, -rect.top / total))
-      onProgress(progress)
+      onProgress(progress, readAnchor(element))
       store.setPercent(Math.round(progress * 100))
     }
 
@@ -231,7 +257,13 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
 
   const articleRef = useRef<HTMLElement>(null)
   const [initialProgress] = useState(() => (fromStart ? 0 : savedProgress))
+  // Captured once: if this came from the live store, every scroll update would
+  // re-run the restore effect and yank the page back.
+  const [initialAnchor] = useState<ReaderAnchor | null>(() =>
+    fromStart ? null : (progressRecord?.anchor ?? article.anchor ?? null),
+  )
   const progressRef = useRef(initialProgress)
+  const anchorRef = useRef<ReaderAnchor | null>(initialAnchor)
   const [progressStore] = useState(() => createReaderProgressStore(initialProgress))
   const saveTimer = useRef<number | undefined>(undefined)
   const hoverTimer = useRef<number | undefined>(undefined)
@@ -300,11 +332,13 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
   }, [article.id, article.progress, touchArticle])
 
   const handleProgress = useCallback(
-    (next: number) => {
+    (next: number, anchor: ReaderAnchor | null) => {
       progressRef.current = next
+      // A probe that lands between words returns null; keep the last good one.
+      if (anchor) anchorRef.current = anchor
       if (saveTimer.current) window.clearTimeout(saveTimer.current)
       saveTimer.current = window.setTimeout(() => {
-        setArticleProgress(article.id, progressRef.current)
+        setArticleProgress(article.id, progressRef.current, anchorRef.current)
       }, 600)
     },
     [article.id, setArticleProgress],
@@ -330,15 +364,27 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
 
   useEffect(() => {
     if (fromStart) {
-      setArticleProgress(article.id, 0)
+      setArticleProgress(article.id, 0, null)
       window.scrollTo({ top: 0, behavior: 'instant' })
       return
     }
-    if (initialProgress <= 0) return
+    if (initialProgress <= 0 && !initialAnchor) return
     let cancelled = false
     const restore = () => {
       const element = articleRef.current
       if (!element || cancelled) return
+      // The anchor wins: it survives font/image reflow, the percentage does not.
+      if (initialAnchor) {
+        const target = element.querySelector<HTMLElement>(
+          `[data-paragraph="${initialAnchor.paragraph}"][data-token="${initialAnchor.token}"]`,
+        )
+        if (target) {
+          const top =
+            window.scrollY + target.getBoundingClientRect().top - ANCHOR_OFFSET
+          window.scrollTo({ top: Math.max(0, top), behavior: 'instant' })
+          return
+        }
+      }
       const rect = element.getBoundingClientRect()
       const total = Math.max(0, rect.height - window.innerHeight)
       const top = window.scrollY + rect.top + total * initialProgress
@@ -352,12 +398,12 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
       cancelled = true
       window.cancelAnimationFrame(frame)
     }
-  }, [article.id, fromStart, initialProgress, setArticleProgress])
+  }, [article.id, fromStart, initialAnchor, initialProgress, setArticleProgress])
 
   useReaderProgressTracker(progressStore, articleRef, initialProgress, handleProgress)
 
   useEffect(() => {
-    const save = () => setArticleProgress(article.id, progressRef.current)
+    const save = () => setArticleProgress(article.id, progressRef.current, anchorRef.current)
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') save()
     }
@@ -500,12 +546,19 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
       </div>
 
       <div className="grid gap-8 pt-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <article ref={articleRef} className="surface-card px-6 py-10 sm:px-10 lg:px-14">
+        <article
+          ref={articleRef}
+          className="surface-card px-6 py-10 sm:px-10 lg:px-14"
+          onMouseOver={handleMouseOver}
+          onMouseOut={handleMouseOut}
+          onMouseUp={handleMouseUp}
+          onClick={handleClick}
+        >
           <div className="mx-auto max-w-[42rem]">
             <header className="border-b border-line pb-8">
               <p className="kicker">Reading</p>
               <h1 className="display mt-3 text-[2.2rem] leading-[1.08] text-ink sm:text-[2.8rem]">
-                {article.title}
+                <ReaderTitle text={article.title} activeToken={activeToken} />
               </h1>
               <p className="mt-4 text-[11px] text-faint">
                 {article.source} · {article.wordCount.toLocaleString('zh-CN')} 词 ·{' '}
@@ -541,13 +594,7 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
               </div>
             )}
 
-            <div
-              className="pt-8"
-              onMouseOver={handleMouseOver}
-              onMouseOut={handleMouseOut}
-              onMouseUp={handleMouseUp}
-              onClick={handleClick}
-            >
+            <div className="pt-8">
               <ReaderText text={article.text} fontSize={fontSize} activeToken={activeToken} />
             </div>
 

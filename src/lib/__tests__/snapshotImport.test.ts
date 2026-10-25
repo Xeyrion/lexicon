@@ -248,6 +248,15 @@ describe('buildReaderProgressPayload', () => {
     })
   })
 
+  it('保留阅读锚点', () => {
+    const withAnchor = { ...article, anchor: { paragraph: 4, token: 9 } }
+    const reader: ParsedReaderSnapshot = { articles: [withAnchor], settings: readerSettings }
+    expect(buildReaderProgressPayload(reader)).toEqual({
+      state: { items: { 'art-1': { progress: 0.5, anchor: { paragraph: 4, token: 9 } } } },
+      version: 1,
+    })
+  })
+
   it('保留 lastReadAt 并把 progress 夹紧到 [0,1]', () => {
     const reader: ParsedReaderSnapshot = {
       articles: [

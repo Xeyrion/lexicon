@@ -122,6 +122,16 @@ export interface PendingSessionCard {
   dueAt: number
 }
 
+/**
+ * Where the reader actually was: the first visible word token. Stored next to
+ * the scroll percentage because percentages drift when fonts or images change
+ * the document height.
+ */
+export interface ReaderAnchor {
+  paragraph: number
+  token: number
+}
+
 export interface ReaderArticle {
   id: string
   title: string
@@ -131,6 +141,7 @@ export interface ReaderArticle {
   updatedAt: string
   lastReadAt?: string
   progress: number
+  anchor?: ReaderAnchor
   wordCount: number
 }
 

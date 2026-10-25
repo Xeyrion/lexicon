@@ -138,10 +138,11 @@
 - 备注：草稿随标签页关闭失效；同一篇在多个标签页编辑时各自独立（sessionStorage 按标签页隔离）。
 
 ### 16. 短文进度和恢复位置不精确
-- 状态：`部分修复`（短文视为读完；字体/图片后的恢复锚点未改）
-- 位置：`Reader.tsx` `updateProgress`
+- 状态：`已修`（短文视为读完；恢复改为 token 锚点，百分比仅作回退）
+- 位置：`src/pages/Reader.tsx`、`src/components/reader/ReaderText.tsx`、`src/store/readerProgressStore.ts`、`src/lib/validation.ts`
 - 现象：不足一屏的文章进度可能 0/1；字体/图片加载后恢复偏移。
-- 建议：短文视为读完；滚动高度 + token 锚点。
+- 处理：进度记录新增 `anchor: { paragraph, token }`，指向「视口顶部第一个可见单词」。滚动时用 `document.elementFromPoint()` 探测（每帧一次布局读取，不遍历全文），恢复时用 `querySelector('[data-paragraph][data-token]')` 定位并 `scrollTo`，因此字体/图片改变高度也能落回同一句。没有 anchor（旧备份、文章被改过）时回落到原来的百分比算法。编辑正文会清掉 anchor（token 位置已失效），保留百分比。
+- 备注：`ReaderArticle` 也带 `anchor`，导出/导入随阅读库一起走；`sanitizeReaderAnchor` 允许标题的 `paragraph: -1`，非法值只丢 anchor、不丢整条进度。
 
 ### 17. `currentBookId` 失效时没有自动回退
 - 状态：`已修`（学习页自动回退；Dashboard 仍可能直接报词书错误）
@@ -420,6 +421,48 @@
 - 草稿恢复条、清空进度弹窗的视觉与键盘操作同样未实测。
 - `npm run dicts` / `reader-data` 没有执行（要下载几十 MB 并覆盖已提交产物），pin 的地址只用 `curl -I` 验过 200。
 - 导入大小限制只做了代码路径，没有构造超大文件实测提示文案。
+
+## 2026-10-25 第六批（阅读锚点 + 标题查词）
+
+### 已完成
+
+- **#16 阅读锚点**：见上文第 16 条。
+- **标题可查词**：`<h1>` 之前是纯文本，现在用 `ReaderTitle` 按同一套 tokenizer 分词，每个词带 `data-word` / `data-paragraph="-1"` / `data-token`；鼠标悬停、点击查词、短语选择的手柄从正文容器上移到 `<article>`，标题一并覆盖。`activeToken` 用 `paragraph: -1` 标记标题，和正文的 0..n 不冲突。
+
+### 本轮验证（首次真实浏览器）
+
+新增 `scripts/smoke-reader.mjs`（`npm run smoke:reader`），用 `puppeteer-core` 驱动本机 Chrome，无头跑一遍阅读页。种子数据：40 段文章，进度 0.75 + `anchor {paragraph: 30}`。
+
+- 锚点恢复：`scrollY=3987`，视口内第一个可见单词的 `data-paragraph` 正是 **30**，与写入的锚点一致。
+- 百分比回退：把锚点去掉后重跑，`scrollY=3430 / max 4590 = 0.747`，落在 paragraph 25 —— 百分比路径仍正常。
+- 标题查词：`h1` 内有 4 个 `data-word` 节点，点击后词条面板打开（显示 attention 的音标与释义），页面无 JS 异常。
+
+### 未验证 / 待办
+
+- 只在 1280×900 桌面视口跑过，移动端底部 sheet 下的锚点恢复未测。
+- 锚点在「同一段文字内滚动」时不会变化（锚点粒度是词），属于设计取舍。
+- `puppeteer-core` 是新增的 devDependency，只服务冒烟脚本；不想要可以删掉脚本和依赖。
+
+## 2026-10-25 第六批（阅读锚点 + 标题查词）
+
+### 已完成
+
+- **#16 阅读锚点**：见上文第 16 条。
+- **标题可查词**：`<h1>` 之前是纯文本，现在用 `ReaderTitle` 按同一套 tokenizer 分词，每个词带 `data-word` / `data-paragraph="-1"` / `data-token`；鼠标悬停、点击查词、短语选择的手柄从正文容器上移到 `<article>`，标题一并覆盖。`activeToken` 用 `paragraph: -1` 标记标题，和正文的 0..n 不冲突。
+
+### 本轮验证（首次真实浏览器）
+
+新增 `scripts/smoke-reader.mjs`（`npm run smoke:reader`），用 `puppeteer-core` 驱动本机 Chrome，无头跑一遍阅读页。种子数据：40 段文章，进度 0.75 + `anchor {paragraph: 30}`。
+
+- 锚点恢复：`scrollY=3987`，视口内第一个可见单词的 `data-paragraph` 正是 **30**，与写入的锚点一致。
+- 百分比回退：把锚点去掉后重跑，`scrollY=3430 / max 4590 = 0.747`，落在 paragraph 25 —— 百分比路径仍正常。
+- 标题查词：`h1` 内有 4 个 `data-word` 节点，点击后词条面板打开（显示 attention 的音标与释义），页面无 JS 异常。
+
+### 未验证 / 待办
+
+- 只在 1280×900 桌面视口跑过，移动端底部 sheet 下的锚点恢复未测。
+- 锚点在「同一段文字内滚动」时不会变化（锚点粒度是词），属于设计取舍。
+- `puppeteer-core` 是新增的 devDependency，只服务冒烟脚本；不想要可以删掉脚本和依赖。
 
 ## 本轮子代理分工
 

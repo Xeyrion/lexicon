@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import type { ReaderArticle } from '../types'
+import type { ReaderAnchor, ReaderArticle } from '../types'
 import { createFileBackedStorage } from '../lib/storage'
 import {
   isPlainObject,
@@ -12,11 +12,13 @@ const STORAGE_NAME = 'lexicon-reader-progress-v1'
 export interface ReaderProgressRecord {
   progress: number
   lastReadAt?: string
+  anchor?: ReaderAnchor
 }
 
 interface ReaderProgressState {
   items: Record<string, ReaderProgressRecord>
-  setProgress: (id: string, progress: number) => void
+  /** `anchor: null` clears it; `undefined` keeps the previous one. */
+  setProgress: (id: string, progress: number, anchor?: ReaderAnchor | null) => void
   touch: (id: string, progress?: number) => void
   removeArticle: (id: string) => void
   replaceAll: (articles: ReaderArticle[]) => void
@@ -27,19 +29,17 @@ export const useReaderProgressStore = create<ReaderProgressState>()(
     (setState) => ({
       items: {},
 
-      setProgress: (id, progress) => {
+      setProgress: (id, progress, anchor) => {
         const clamped = Math.min(1, Math.max(0, progress))
         setState((state) => {
           const current = state.items[id]
-          return {
-            items: {
-              ...state.items,
-              [id]: {
-                progress: clamped,
-                lastReadAt: current?.lastReadAt ?? new Date().toISOString(),
-              },
-            },
+          const nextAnchor = anchor === null ? undefined : (anchor ?? current?.anchor)
+          const record: ReaderProgressRecord = {
+            progress: clamped,
+            lastReadAt: current?.lastReadAt ?? new Date().toISOString(),
           }
+          if (nextAnchor) record.anchor = nextAnchor
+          return { items: { ...state.items, [id]: record } }
         })
       },
 
@@ -74,6 +74,7 @@ export const useReaderProgressStore = create<ReaderProgressState>()(
           items[article.id] = {
             progress: Math.min(1, Math.max(0, article.progress)),
             ...(article.lastReadAt ? { lastReadAt: article.lastReadAt } : {}),
+            ...(article.anchor ? { anchor: article.anchor } : {}),
           }
         }
         setState({ items })
@@ -111,6 +112,8 @@ export function articlesWithProgress(articles: ReaderArticle[]): ReaderArticle[]
     }
     if (record.lastReadAt) merged.lastReadAt = record.lastReadAt
     else delete merged.lastReadAt
+    if (record.anchor) merged.anchor = record.anchor
+    else delete merged.anchor
     return merged
   })
 }

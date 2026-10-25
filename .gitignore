@@ -38,3 +38,4 @@ dist-ssr
 
 # Assistant workspace data (not part of the app)
 .workbuddy-ai/
+/.tmpcheck/

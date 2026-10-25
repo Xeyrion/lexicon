@@ -2,6 +2,7 @@ import type {
   CardRecord,
   DayStat,
   PersonalWord,
+  ReaderAnchor,
   ReaderArticle,
   ReaderSettings,
   Settings,
@@ -90,12 +91,13 @@ export function parseSnapshot(
 
 export function readerProgressItems(
   articles: ReaderArticle[],
-): Record<string, { progress: number; lastReadAt?: string }> {
-  const items: Record<string, { progress: number; lastReadAt?: string }> = {}
+): Record<string, { progress: number; lastReadAt?: string; anchor?: ReaderAnchor }> {
+  const items: Record<string, { progress: number; lastReadAt?: string; anchor?: ReaderAnchor }> = {}
   for (const article of articles) {
     items[article.id] = {
       progress: Math.min(1, Math.max(0, article.progress)),
       ...(article.lastReadAt ? { lastReadAt: article.lastReadAt } : {}),
+      ...(article.anchor ? { anchor: article.anchor } : {}),
     }
   }
   return items

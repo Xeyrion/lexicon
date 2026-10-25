@@ -350,6 +350,55 @@ describe('sanitizePersonalWords', () => {
   })
 })
 
+describe('阅读锚点', () => {
+  it('合法的 anchor 原样保留', () => {
+    expect(
+      sanitizeReaderProgressItems({
+        'art-1': { progress: 0.5, anchor: { paragraph: 3, token: 7 } },
+      }),
+    ).toEqual({ 'art-1': { progress: 0.5, anchor: { paragraph: 3, token: 7 } } })
+  })
+
+  it('标题锚点（paragraph = -1）允许', () => {
+    expect(
+      sanitizeReaderProgressItems({
+        'art-1': { progress: 0, anchor: { paragraph: -1, token: 2 } },
+      }),
+    ).toEqual({ 'art-1': { progress: 0, anchor: { paragraph: -1, token: 2 } } })
+  })
+
+  it('anchor 非法时只丢 anchor，保留进度', () => {
+    for (const anchor of [
+      { paragraph: -2, token: 0 },
+      { paragraph: 1.5, token: 0 },
+      { paragraph: 0, token: -1 },
+      { paragraph: '1', token: 0 },
+      { token: 0 },
+      'nope',
+    ]) {
+      expect(
+        sanitizeReaderProgressItems({ 'art-1': { progress: 0.4, anchor } }),
+      ).toEqual({ 'art-1': { progress: 0.4 } })
+    }
+  })
+
+  it('文章里的 anchor 也会被解析出来', () => {
+    const [article] = sanitizeReaderArticles([
+      {
+        id: 'a1',
+        title: 'T',
+        text: 'hello world',
+        createdAt: ISO,
+        updatedAt: ISO,
+        progress: 0.3,
+        wordCount: 2,
+        anchor: { paragraph: 2, token: 4 },
+      },
+    ])
+    expect(article?.anchor).toEqual({ paragraph: 2, token: 4 })
+  })
+})
+
 describe('sanitizeReaderProgressItems', () => {
   it('合法条目原样保留', () => {
     expect(

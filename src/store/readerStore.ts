@@ -77,6 +77,13 @@ export const useReaderStore = create<ReaderState>()(
         setState((state) => ({
           articles: state.articles.map((article) => (article.id === id ? updated : article)),
         }))
+        // A token anchor points at a specific word; once the text changes it no
+        // longer means anything. Keep the percentage, drop the anchor.
+        if (text !== existing.text) {
+          const progress = useReaderProgressStore.getState()
+          const record = progress.items[id]
+          progress.setProgress(id, record?.progress ?? existing.progress, null)
+        }
         return updated
       },
 

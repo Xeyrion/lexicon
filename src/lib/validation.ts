@@ -2,6 +2,7 @@ import type {
   CardRecord,
   DayStat,
   PersonalWord,
+  ReaderAnchor,
   ReaderArticle,
   ReaderSettings,
   SerializedCard,
@@ -18,6 +19,7 @@ interface Parsed<T> {
 export interface SanitizedReaderProgress {
   progress: number
   lastReadAt?: string
+  anchor?: ReaderAnchor
 }
 
 const DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
@@ -482,6 +484,9 @@ function parseReaderArticle(value: unknown): Parsed<ReaderArticle> | null {
     repaired += 1
   }
 
+  const anchor = sanitizeReaderAnchor(value.anchor)
+  if (value.anchor !== undefined && !anchor) repaired += 1
+
   return {
     value: {
       id,
@@ -492,6 +497,7 @@ function parseReaderArticle(value: unknown): Parsed<ReaderArticle> | null {
       updatedAt,
       ...(lastReadAt ? { lastReadAt } : {}),
       progress,
+      ...(anchor ? { anchor } : {}),
       wordCount,
     },
     repaired,
@@ -562,6 +568,17 @@ export function sanitizeReaderSettings(
   return parsed.value
 }
 
+/** Title tokens use paragraph -1, body tokens 0..n; anything else is dropped. */
+function sanitizeReaderAnchor(value: unknown): ReaderAnchor | null {
+  if (!isPlainObject(value)) return null
+  const paragraph = finiteNumber(value.paragraph)
+  const token = finiteNumber(value.token)
+  if (paragraph === null || token === null) return null
+  if (!Number.isInteger(paragraph) || paragraph < -1) return null
+  if (!Number.isInteger(token) || token < 0) return null
+  return { paragraph, token }
+}
+
 function parseReaderProgress(
   value: unknown,
 ): Parsed<SanitizedReaderProgress> | null {
@@ -585,8 +602,15 @@ function parseReaderProgress(
     repaired += 1
   }
 
+  const anchor = sanitizeReaderAnchor(value.anchor)
+  if (value.anchor !== undefined && !anchor) repaired += 1
+
   return {
-    value: lastReadAt ? { progress, lastReadAt } : { progress },
+    value: {
+      progress,
+      ...(lastReadAt ? { lastReadAt } : {}),
+      ...(anchor ? { anchor } : {}),
+    },
     repaired,
   }
 }
