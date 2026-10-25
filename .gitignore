@@ -25,3 +25,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Root-level scratch output from local debugging (compiler dumps, redirect logs)
+/*.out
+/tsc*.txt
+/out*.txt
+/result*.txt
+/__res.txt
+/res.txt
+# Windows reserved device name; can only be removed with the \\?\ prefix
+/con
+
+# Assistant workspace data (not part of the app)
+.workbuddy-ai/
