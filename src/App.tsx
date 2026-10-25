@@ -1,16 +1,17 @@
-import { useEffect } from 'react'
+import { lazy, useEffect } from 'react'
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import { useHydrated } from './lib/useHydrated'
 import { useAppStore } from './store/appStore'
-import Books from './pages/Books'
-import Dashboard from './pages/Dashboard'
-import EditArticle from './pages/EditArticle'
-import Reader from './pages/Reader'
-import Reading from './pages/Reading'
-import Settings from './pages/Settings'
-import Stats from './pages/Stats'
-import Study from './pages/Study'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Study = lazy(() => import('./pages/Study'))
+const Reading = lazy(() => import('./pages/Reading'))
+const EditArticle = lazy(() => import('./pages/EditArticle'))
+const Reader = lazy(() => import('./pages/Reader'))
+const Books = lazy(() => import('./pages/Books'))
+const Stats = lazy(() => import('./pages/Stats'))
+const Settings = lazy(() => import('./pages/Settings'))
 
 function ThemeSync() {
   const theme = useAppStore((state) => state.settings.theme)

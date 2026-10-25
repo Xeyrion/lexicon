@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { Suspense, useSyncExternalStore } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import {
   AlertCircle,
@@ -23,6 +23,7 @@ import {
 import { useIsDark } from '../lib/useIsDark'
 import { useAppStore } from '../store/appStore'
 import { Logo } from './Logo'
+import PageFallback from './PageFallback'
 
 const NAV: { to: string; label: string; icon: LucideIcon }[] = [
   { to: '/', label: '今日', icon: Home },
@@ -184,7 +185,9 @@ export default function Layout() {
               exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
               transition={{ duration: 0.28, ease: [0.2, 0.7, 0.2, 1] }}
             >
-              <Outlet />
+              <Suspense fallback={<PageFallback />}>
+                <Outlet />
+              </Suspense>
             </motion.div>
           </AnimatePresence>
         </main>
