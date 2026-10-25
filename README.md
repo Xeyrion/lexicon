@@ -1,6 +1,38 @@
 # Lexicon（词间）
 
-Lexicon 是一个本地优先的英语学习工具：按 FSRS 间隔重复背单词，也可以导入文章做精读、查词并把生词收进个人词库。界面基于 React + Vite + Zustand，数据保存在本机的 JSON 文件里，不需要账号，也不会上传到云端。
+一个本地优先的英语学习工具：按 FSRS 间隔重复背单词，把文章和整本书放进来精读，读的时候点一下单词就能查。数据全部保存在本机的 JSON 文件里，不需要账号，也不会上传到云端。
+
+界面基于 React 19 + Vite + TypeScript + Zustand。
+
+![今日](docs/images/dashboard.png)
+
+## 它能做什么
+
+- **背单词**：FSRS 间隔重复，每日新词/复习上限可调，连续天数与记忆率统计。
+- **精读文章**：粘贴或导入文章，悬停看词义、点击固定词条、拖选查短语，生词一键收进个人词库。
+- **读整本书**：导入 EPUB / Markdown，自动按目录切章，书架管理，按章阅读并记录进度。
+- **互动故事**：带分支和轻状态的短篇——选项会改变变量，世界会记得你，结局收进图鉴。
+- **数据自主**：每天自动备份，随时导出/导入完整 JSON，可一键清空。
+
+## 截图
+
+| 今日 | 学习 |
+| --- | --- |
+| ![今日](docs/images/dashboard.png) | ![学习](docs/images/study.png) |
+
+| 阅读与查词 | 互动故事 |
+| --- | --- |
+| ![阅读](docs/images/reader.png) | ![故事](docs/images/story.png) |
+
+| 书架 | 统计 |
+| --- | --- |
+| ![书架](docs/images/library.png) | ![统计](docs/images/stats.png) |
+
+深色模式：
+
+![深色模式](docs/images/reader-dark.png)
+
+> 截图由 `npm run shots` 生成（会清空数据目录，只对临时目录使用）。
 
 ## 环境要求
 
@@ -120,6 +152,22 @@ npm run story:map    # 打印故事分支树（作者用）
 
 `dicts` 和 `reader-data` 会从 ECDICT 与 ipa-dict 拉取源数据（版本已固定到具体 commit，产物可复现），耗时取决于网络；生成结果在 `public/data/`。脚本也支持通过 `LEXICON_RAW_DIR` 环境变量复用本地原始数据缓存（旧名 `LEARNWORD_RAW_DIR` 仍兼容，新名优先）。
 
+## 项目结构
+
+```text
+src/
+  pages/        每个路由一个页面（今日 / 学习 / 阅读 / 书架 / 故事 / 统计 / 设置）
+  components/   按领域分目录：reader、library、story、settings
+  hooks/        跨页面复用的状态逻辑（词典、存储、草稿）
+  lib/          纯函数：校验、EPUB/Markdown 解析、故事引擎、FSRS、统计、存储适配
+  store/        Zustand store，每个数据文件一个（study / reader / library / stories）
+  data/         随应用打包的内容（内置短篇）
+server/         本地数据接口：读写、原子写、每日备份、事务式导入、损坏隔离
+scripts/        词典构建、故事作者工具、无头浏览器冒烟与截图
+docs/           审计与修复记录、阶段计划、README 截图
+public/data/    词书与阅读词典（构建产物，已提交，保证离线可用）
+```
+
 ## 故障排查
 
 ### 端口 5173 被占用
@@ -171,10 +219,11 @@ npm -v
 - 数据以整份 JSON 文件读写；阅读文章很多或很长时，启动和保存会变慢。
 - 导入备份已有基本回滚保护，但仍不是严格意义上的跨多文件原子事务，导入后建议刷新页面确认结果。
 - 备份删除需手动到备份目录操作（暂未提供 UI 删除）。
-- 尚未接入自动化测试和 CI。
+- 有 103 条单元测试和 4 个无头浏览器冒烟脚本，但**没有 CI**，需要手动跑。
+- 修改后立刻刷新页面，有极小概率丢掉最后一次写入（页面卸载时的落盘可能被导航打断）。
 
 ## 许可证
 
 本项目采用 [MIT License](LICENSE)。
 
-更多待修问题与背景见 [docs/ISSUES.md](docs/ISSUES.md)。
+更多待修问题与背景见 [docs/ISSUES.md](docs/ISSUES.md)，开发路线见 [docs/ROADMAP.txt](docs/ROADMAP.txt)。

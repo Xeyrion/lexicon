@@ -22,7 +22,8 @@
     "smoke:books": "node scripts/smoke-books.mjs",
     "smoke:stories": "node scripts/smoke-stories.mjs",
     "story:check": "node scripts/story-tools.mjs check",
-    "story:map": "node scripts/story-tools.mjs map"
+    "story:map": "node scripts/story-tools.mjs map",
+    "shots": "node scripts/screenshots.mjs"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.3.0",
