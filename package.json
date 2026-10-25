@@ -1,6 +1,7 @@
 {
   "name": "lexicon",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "type": "module",
   "engines": {
@@ -13,7 +14,9 @@
     "icons": "node scripts/make-icons.mjs",
     "dicts": "node scripts/build-dicts.mjs",
     "reader-data": "node scripts/build-reader-data.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.3.0",
@@ -42,6 +45,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
     "vite": "^8.3.4",
-    "vite-plugin-pwa": "^2.0.0"
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.5"
   }
 }
