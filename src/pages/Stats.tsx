@@ -16,16 +16,8 @@ import { Heatmap } from '../components/Heatmap'
 import { PageHeader } from '../components/PageHeader'
 import { StatTile } from '../components/StatTile'
 import { useRegistry } from '../hooks/useRegistry'
-import { dayTotal, formatNumber, getStreak } from '../lib/date'
-import {
-  accuracy,
-  activitySeries,
-  masteredTotal,
-  ratingTotals,
-  totalNew,
-  totalReviews,
-  totalReviewWords,
-} from '../lib/stats'
+import { formatNumber, getStreak } from '../lib/date'
+import { activitySeries, summarizeStudy } from '../lib/stats'
 import { personalMeta } from '../lib/books'
 import { useAppStore } from '../store/appStore'
 
@@ -42,26 +34,34 @@ export default function Stats() {
   const personalWords = useAppStore((state) => state.personalWords)
   const { registry } = useRegistry()
 
-  const learned = Object.keys(progress).length
-  const mastered = masteredTotal(progress)
-  const clicks = totalReviews(days)
-  const reviewWords = totalReviewWords(days)
-  const newWords = totalNew(days)
-  const streak = getStreak(days)
-  const retention = accuracy(days)
-  const activeDays = Object.values(days).filter((day) => dayTotal(day) > 0).length
+  const summary = useMemo(() => summarizeStudy(progress, days), [progress, days])
+  const streak = useMemo(() => getStreak(days), [days])
+  const {
+    learned,
+    mastered,
+    clicks,
+    reviewWords,
+    newWords,
+    activeDays,
+    ratings,
+    retention,
+  } = summary
 
   const series = useMemo(() => activitySeries(days, 30), [days])
-  const ratings = useMemo(() => ratingTotals(days), [days])
-  const ratingTotal = ratings.again + ratings.hard + ratings.good + ratings.easy
+  const ratingTotal = clicks
+
+  const learnedByBook = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const record of Object.values(progress)) {
+      counts.set(record.bookId, (counts.get(record.bookId) ?? 0) + 1)
+    }
+    return counts
+  }, [progress])
 
   const books = useMemo(() => {
     const list = [...(registry?.books ?? []), personalMeta(personalWords)]
     return list.map((book) => {
-      const learnedCount = Math.min(
-        book.wordCount,
-        Object.values(progress).filter((record) => record.bookId === book.id).length,
-      )
+      const learnedCount = Math.min(book.wordCount, learnedByBook.get(book.id) ?? 0)
       return {
         ...book,
         learnedCount,
@@ -69,7 +69,7 @@ export default function Stats() {
           book.wordCount === 0 ? 0 : Math.round((learnedCount / book.wordCount) * 100),
       }
     })
-  }, [registry, personalWords, progress])
+  }, [registry, personalWords, learnedByBook])
 
   if (clicks === 0 && learned === 0) {
     return (

@@ -1,5 +1,5 @@
 import type { CardRecord, DayStat, SessionCard, SessionStage, Settings, WordBook } from '../types'
-import { dateKey, getLastDays, relativeDayLabel, reviewWordsForDay } from './date'
+import { dateKey, dayTotal, getLastDays, relativeDayLabel, reviewWordsForDay } from './date'
 import { isDue, isMastered, isReviewState, repeatStage } from './fsrs'
 import { countOldReviewsToday } from './reviewMetrics'
 import { cardKey } from '../store/appStore'
@@ -16,6 +16,24 @@ export interface QueuePlan {
   learningDue: number
   reviewPlan: number
   newPlan: number
+}
+
+export interface RatingTotals {
+  again: number
+  hard: number
+  good: number
+  easy: number
+}
+
+export interface StudySummary {
+  learned: number
+  mastered: number
+  clicks: number
+  reviewWords: number
+  newWords: number
+  activeDays: number
+  ratings: RatingTotals
+  retention: number
 }
 
 export function bookStats(book: WordBook, progress: Record<string, CardRecord>): BookStats {
@@ -218,6 +236,45 @@ export function newCount(
   return Math.min(book.words.filter((word) => !learned.has(word.id)).length, quota)
 }
 
+export function summarizeStudy(
+  progress: Record<string, CardRecord>,
+  days: Record<string, DayStat>,
+): StudySummary {
+  let learned = 0
+  let mastered = 0
+  for (const record of Object.values(progress)) {
+    learned += 1
+    if (isMastered(record)) mastered += 1
+  }
+
+  let clicks = 0
+  let reviewWords = 0
+  let newWords = 0
+  let activeDays = 0
+  const ratings: RatingTotals = { again: 0, hard: 0, good: 0, easy: 0 }
+  for (const day of Object.values(days)) {
+    ratings.again += day.again
+    ratings.hard += day.hard
+    ratings.good += day.good
+    ratings.easy += day.easy
+    clicks += day.again + day.hard + day.good + day.easy
+    reviewWords += reviewWordsForDay(day)
+    newWords += day.newCount
+    if (dayTotal(day) > 0) activeDays += 1
+  }
+
+  return {
+    learned,
+    mastered,
+    clicks,
+    reviewWords,
+    newWords,
+    activeDays,
+    ratings,
+    retention: clicks === 0 ? 0 : Math.round(((clicks - ratings.again) / clicks) * 100),
+  }
+}
+
 export function totalReviews(days: Record<string, DayStat>): number {
   return Object.values(days).reduce(
     (sum, day) => sum + day.again + day.hard + day.good + day.easy,
@@ -259,7 +316,7 @@ export function activitySeries(days: Record<string, DayStat>, count: number, now
   })
 }
 
-export function ratingTotals(days: Record<string, DayStat>) {
+export function ratingTotals(days: Record<string, DayStat>): RatingTotals {
   return Object.values(days).reduce(
     (totals, day) => ({
       again: totals.again + day.again,
