@@ -239,10 +239,13 @@ export function newCount(
 export function summarizeStudy(
   progress: Record<string, CardRecord>,
   days: Record<string, DayStat>,
+  // 传入已知词书 id 集合，用于排除已删除词书遗留的孤儿记录。
+  validBookIds?: Set<string>,
 ): StudySummary {
   let learned = 0
   let mastered = 0
   for (const record of Object.values(progress)) {
+    if (validBookIds && !validBookIds.has(record.bookId)) continue
     learned += 1
     if (isMastered(record)) mastered += 1
   }

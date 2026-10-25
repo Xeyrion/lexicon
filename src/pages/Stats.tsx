@@ -34,7 +34,18 @@ export default function Stats() {
   const personalWords = useAppStore((state) => state.personalWords)
   const { registry } = useRegistry()
 
-  const summary = useMemo(() => summarizeStudy(progress, days), [progress, days])
+  const validBookIds = useMemo(
+    () =>
+      registry
+        ? new Set([...registry.books.map((book) => book.id), 'personal'])
+        : undefined,
+    [registry],
+  )
+
+  const summary = useMemo(
+    () => summarizeStudy(progress, days, validBookIds),
+    [progress, days, validBookIds],
+  )
   const streak = useMemo(() => getStreak(days), [days])
   const {
     learned,
