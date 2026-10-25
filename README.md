@@ -39,6 +39,7 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ├── reader.json           阅读文章与阅读设置
 ├── reader-progress.json  文章与章节的阅读进度
 ├── library.json          书架：书籍与章节正文
+├── stories.json          故事：内容、存档与结局图鉴
 ├── config.json           设置页里可调的本机配置（目前只有导入上限）
 └── backups\              自动每日备份
 ```
@@ -83,6 +84,15 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 - **读**：章节复用文章阅读器（查词、悬停、短语、进度锚点都在），底部有「上一章 / 目录 / 下一章」。
 - **不支持**：TXT（没有章节结构，猜不准）。扫描版或带 DRM 的 EPUB 提取不出文字，导入时会直接报错而不是给你一本空书。
 
+## 互动故事
+
+「阅读」顶部第三个 tab。**是带选择的阅读，不是文字冒险**：没有物品栏、战斗、骰子或自由输入。
+
+- 节点是一段英文正文，底部 2–5 个选项通向别的节点。正文复用阅读器，**点单词照样能查词、加生词本**。
+- **世界记得你**：故事可以有少量变量（`courage`、`helped_stranger`），选项能改变量、也能被变量限制（不满足时置灰并说明，不隐藏），同一节点还能按变量显示不同文本。
+- **存档**：每次选择都会保存；「撤销一步」连变量一起回滚；结局会解锁进图鉴（隐藏结局只计入总数，不显示名字）。
+- **自己写**：`npm run story:check <file>` 校验、`npm run story:map <file>` 看分支树，或在「故事 → 导出模板」拿一份带全部字段的模板。导入时校验不过会直接拒绝并列出问题。
+
 ## 常用脚本
 
 ```powershell
@@ -98,8 +108,14 @@ npm run icons        # 重新生成 PWA 图标
 npm run smoke:reader # 无头 Chrome 跑一遍阅读页（需先启动 dev 服务）
 npm run smoke:app    # 首启引导 / 键盘查词 / 时间异常提示（加 --force-clean 会清数据）
 npm run smoke:books  # 造一本 EPUB 走完导入、改目录、章节阅读与跳转
+npm run smoke:stories # 内置短篇玩到结局、撤销一步、检查图鉴解锁
+npm run story:check  # 校验一个故事 JSON（作者用）
+npm run story:map    # 打印故事分支树（作者用）
 npm run smoke:app    # 首启引导 / 键盘查词 / 时间异常提示（加 --force-clean 会清数据）
 npm run smoke:books  # 造一本 EPUB 走完导入、改目录、章节阅读与跳转
+npm run smoke:stories # 内置短篇玩到结局、撤销一步、检查图鉴解锁
+npm run story:check  # 校验一个故事 JSON（作者用）
+npm run story:map    # 打印故事分支树（作者用）
 ```
 
 `dicts` 和 `reader-data` 会从 ECDICT 与 ipa-dict 拉取源数据（版本已固定到具体 commit，产物可复现），耗时取决于网络；生成结果在 `public/data/`。脚本也支持通过 `LEXICON_RAW_DIR` 环境变量复用本地原始数据缓存（旧名 `LEARNWORD_RAW_DIR` 仍兼容，新名优先）。
