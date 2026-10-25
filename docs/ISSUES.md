@@ -19,15 +19,17 @@
 
 ## 需要你拍板的重大改动
 
-以下项目会影响整体运行方式、数据格式或恢复语义，子代理不会擅自实施：
+以下项目会影响整体运行方式、数据格式或恢复语义，子代理不会擅自实施。
+
+> 2026-10-25 决定：M4 采用“保留备份 + 清空弹窗告知 + 设置页展示目录/大小”；M1、M5 暂不推进；#21 只做服务端紧凑 JSON；#20、#24、#35 本轮修复。#3、#29 随之解决。
 
 | 编号 | 事项 | 为什么需要确认 | 建议 |
 | --- | --- | --- | --- |
-| M1 | 把 `study.json` / `reader.json` 从“整文件覆盖”改为分片或 SQLite/LevelDB | 改变数据文件结构和备份方式，属于存储架构升级 | 先做本轮可靠性修复，再单独评估 |
+| M1 | 把 `study.json` / `reader.json` 从“整文件覆盖”改为分片或 SQLite/LevelDB | 改变数据文件结构和备份方式，属于存储架构升级 | 暂缓；#21 已先做服务端紧凑 JSON |
 | M2 | `start.cmd` 从 `vite dev` 改为 `build + preview` | 改变日常启动方式，影响开发调试和 PWA | 建议保留 dev 作为开发入口，另加 `start-local.cmd` |
 | M3 | PWA 数据缓存从 `CacheFirst` 一年改为 `NetworkFirst`/版本化 URL | 改变离线行为和词典更新语义 | 若保留 PWA，建议做版本化 |
-| M4 | “清除全部数据”是否连 `backups/` 一起删除 | 涉及隐私与可恢复性的取舍 | 建议弹窗让用户选择 |
-| M5 | 词典/词书改为按需分片加载或新数据格式 | 需要改构建脚本与前端加载器 | 先测量，再决定是否值得 |
+| M4 | “清除全部数据”是否连 `backups/` 一起删除 | 涉及隐私与可恢复性的取舍 | 已决定保留备份；清空弹窗告知，设置页展示备份路径/数量/大小 |
+| M5 | 词典/词书改为按需分片加载或新数据格式 | 需要改构建脚本与前端加载器 | 暂缓；先测量，再决定是否值得 |
 | M6 | 跨浏览器/多进程写入：改为只读 follower、文件锁或单实例检测 | 改变多开行为 | 建议先停止 409 自动覆盖，是否做锁另行确认 |
 | M7 | 增加服务端备份浏览/恢复 API 与 UI | 新增数据恢复入口和接口 | 建议做，但单独一批 |
 | M8 | 项目 LICENSE 选择 | 法律选择，不能替用户决定 | 建议 MIT，与数据源一致 |
@@ -49,10 +51,11 @@
 - 建议：写入前先置 dirty 标记；启动时优先重放；成功后才清 pending；关键写入立即落盘。
 
 ### 3. 每日备份“有，但不好用”，清空数据不删备份
-- 状态：`待确认`（M4/M7）
-- 位置：`server/dataStorage.ts` `ensureDailyBackup`/`pruneBackups`/DELETE
-- 现象：每个 kind 每天只在当天第一次写入前备份一次；保留 30 份；无校验和；与主文件同盘。DELETE 前会备份，且不删 `backups/`，用户以为清干净了，历史记录还在。
-- 建议：备份列表/恢复/删除 UI；清空时询问是否连备份一起删；重要写入前滚动备份。
+- 状态：`已修`（保留备份；设置页展示目录/大小；清空弹窗告知）
+- 位置：`server/dataStorage.ts` `ensureDailyBackup`/`pruneBackups`/DELETE、`src/pages/Settings.tsx`
+- 现象：每个 kind 每天只在当天第一次写入前备份一次；无校验和；与主文件同盘。DELETE 前会备份，且不删 `backups/`，用户以为清干净了，历史记录还在。
+- 处理：明确保留备份，不自动删除；设置页显示数据目录、备份目录、各文件大小、备份总份数与总大小；清空全部数据时弹窗告知备份仍保留，需要彻底清理时由用户手动删除。
+- 备注：默认每种数据保留 30 份，三种数据合计最多约 90 份。若觉得占用空间偏大，可在设置页查看备份大小后自行清理；备份列表/一键恢复仍属于 M7，未做。
 
 ### 4. 恢复和持久化数据缺少 schema 校验，坏备份可导致白屏
 - 状态：`已验证`（校验器冒烟、ErrorBoundary 构建通过）
@@ -149,25 +152,25 @@
 - 建议：进度条独立/ref 更新；`ReaderText` memo；稳定回调。
 
 ### 19. 7MB 词典首次加载成本高
-- 状态：`待确认`（M5）
+- 状态：`暂缓`（M5，暂不推进）
 - 位置：`useReaderDictionary`、`readerData.ts`
 - 现象：7.27MB / 54,794 词条 + 0.82MB 短语，主线程 parse + 构建 Map。
 - 建议：分片/Worker/IndexedDB 缓存。
 
 ### 20. 主包过大，没有路由级拆包
-- 状态：`待修`
+- 状态：`已修`（路由 lazy + Suspense；主 chunk 由约 707KB 降到约 218KB，Stats 独立 365KB）
 - 位置：`App.tsx`、`vite.config.ts`
 - 现象：主 chunk 约 693KB（gzip 约 210KB），所有页面静态 import。
 - 建议：路由 lazy、recharts 按需、manualChunks。
 
 ### 21. 每次答题全量序列化并写整个 study.json
-- 状态：`待确认`（M1）
+- 状态：`已修`（服务端紧凑 JSON；分片/增量仍按 M1 暂缓）
 - 位置：三个 store 的 persist、`dataStorage.ts`
 - 现象：每次 set 全量 `JSON.stringify`；服务端还 pretty-print。
 - 建议：分片/增量；服务端紧凑 JSON。
 
 ### 22. 阅读库单文件存全文
-- 状态：`待确认`（M1）
+- 状态：`暂缓`（M1，暂不推进）
 - 位置：`readerStore.ts`
 - 现象：改字号/重命名都重写整个 `reader.json`。
 - 建议：文章分文件或 IndexedDB。
@@ -178,7 +181,7 @@
 - 建议：分页/分片。
 
 ### 24. 统计页重复全量遍历
-- 状态：`待修`
+- 状态：`已修`（`summarizeStudy` 单次遍历 progress/days，词书进度改为一次建 Map）
 - 位置：`stats.ts`、Stats/Dashboard
 - 建议：`useMemo` + 一次遍历聚合。
 
@@ -208,10 +211,10 @@
 - 建议：统一 `lexicon`，版本注入，README 重写。
 
 ### 29. 数据目录不可见
-- 状态：`待修`
-- 位置：`Settings.tsx`；服务端已有 `GET /api/storage`
+- 状态：`已修`（设置页显示数据目录、备份目录、文件大小和备份占用）
+- 位置：`Settings.tsx`、`server/dataStorage.ts`、`src/lib/storageInfo.ts`
 - 现象：用户不知道 `%APPDATA%\lexicon`、`LEXICON_DATA_DIR`、`data\.portable`。
-- 建议：显示路径 + 复制/打开按钮。
+- 处理：显示路径 + 文件/备份大小；未加“复制路径”或“打开目录”按钮，避免新增本地系统调用接口，路径可直接选中复制。
 
 ### 30. 错误提示语义不清
 - 状态：`已修`（区分离线/损坏/写入冲突，冲突时提示导出后再刷新）
@@ -242,9 +245,9 @@
 ## 五、维护与工程
 
 ### 35. TypeScript strict 未开启
-- 状态：`待修`
-- 位置：`tsconfig.app.json`
-- 建议：先开 `strictNullChecks`，逐步开全 strict。
+- 状态：`已修`
+- 位置：`tsconfig.app.json`、`tsconfig.node.json`
+- 处理：已开启 `"strict": true`，`npm run build` 通过；未额外开启 `noUncheckedIndexedAccess` 等更严格选项。
 
 ### 36. 无测试、无 CI、无 test 脚本
 - 状态：`待确认`（M9）
@@ -303,7 +306,30 @@
 - `currentBookId` 回退只在学习页生效；Dashboard 仍可能直接显示词书加载错误。
 - 导入备份仍非事务性；所有条目都无效时阅读库会拒绝覆盖，但学习数据仍可能被部分替换。
 - `start.cmd` 的 Node 版本检查和提示文案已单独验证，未完整双击启动并等待浏览器打开。
-- 主包仍有约 707KB 的 chunk 体积警告，路由级拆包尚未做。
+- ~~主包仍有约 707KB 的 chunk 体积警告，路由级拆包尚未做。~~ 已在 2026-10-25 完成路由级拆包（见下方第二批记录）。
+
+## 2026-10-25 第二批验证记录
+
+验证环境：Node 24.18.0、Vite 8.3.5、Chrome headless（桌面 1440×1000、移动 390×844）、独立临时数据目录 `%TEMP%\lexicon-smoke-*`，未触碰真实 `%APPDATA%\lexicon`。
+
+### 已通过
+
+- `npm run lint`、`npm run build` 通过；`tsconfig.app.json` 与 `tsconfig.node.json` 均已开启 `strict: true`，`tsc -b` 无错误。
+- 路由拆包：主入口 `App-*.js` 约 218KB（gzip 73KB），通用 vendor `index-*.js` 约 237KB（gzip 75KB），`Stats-*.js` 约 365KB（gzip 106KB，含 recharts）；原先约 707KB 的单一主 chunk 已消失。
+- `GET /api/storage` 返回 `directory`、`backupDirectory`、`keepBackups`、`files`、`backups`；备份统计能区分 study/reader/reader-progress 并汇总份数与字节数。
+- 服务端写入改为紧凑 JSON：测试 `study.json` 为单行 165B（格式化版本约 300B+）。
+- 设置页（桌面与 390px 移动视口）显示数据目录、备份目录、各文件大小、备份总份数/总大小和每类份数；长路径可换行，无横向溢出。
+- 清空全部数据弹窗：遮罩/Escape/取消可关闭；确认后三个主数据文件被删除，`backups/study-2026-10-25.json` 仍保留，`GET /api/storage` 显示 `files.*.exists=false`、`backups.total=1`。
+- 统计页用 1 条复习记录 + 1 天统计验证：累计点击 2、已学 1、已掌握 1、记忆率 100%、连续 1 天，与旧口径一致；Settings、Stats、Dashboard 三个懒加载路由均能正常渲染。
+- 浏览器控制台无运行时异常；仅出现缺失 `reader.json` / `reader-progress.json` 时的预期 404 请求日志。
+
+### 未验证 / 仍需人工确认
+
+- 自动备份列表、一键恢复、删除备份 UI 仍未做（M7）。
+- 备份保留上限 30 份/类只做了逻辑与统计验证，没有压测 31 份以上的滚动清理。
+- `strict` 未包含 `noUncheckedIndexedAccess` 等额外严格选项。
+- 移动端仅做 390px 截图检查，未在真实手机/平板上验证触摸与滚动。
+- 路由懒加载后的首次切换有短暂骨架屏；已在 Layout 内显示，侧栏不会消失。
 
 ## 本轮子代理分工
 
