@@ -131,10 +131,11 @@
 - 建议：检测不到时给出说明并降级，不要无限等待。
 
 ### 15. 删除/编辑保护不一致
-- 状态：`部分修复`（个人词删除已确认；文章编辑器草稿自动保存未做）
-- 位置：`Books.tsx` 个人词删除、`EditArticle.tsx`/`ArticleComposer.tsx`
+- 状态：`已修`
+- 位置：`Books.tsx` 个人词删除、`src/hooks/useArticleDraft.ts`、`src/components/reader/ArticleComposer.tsx`
 - 现象：个人词删除无确认；文章编辑器无草稿自动保存。
-- 建议：删除确认/撤销；编辑器 debounce 草稿。
+- 处理：个人词删除已有 `window.confirm`（早先已加，此前文档记录有误）。编辑器新增草稿自动保存：输入停顿 400ms 写入 `sessionStorage`（编辑 `lexicon:draft:edit:<id>`、新建 `lexicon:draft:new`），**不写进 `reader.json`**，避免污染真实数据和备份；进入时若草稿与当前内容不同，显示「发现未保存的草稿（保存于 HH:mm）」并给「恢复 / 丢弃」，不自动覆盖；提交成功后清除草稿，取消时保留。读写均 try/catch，隐私模式下静默降级。
+- 备注：草稿随标签页关闭失效；同一篇在多个标签页编辑时各自独立（sessionStorage 按标签页隔离）。
 
 ### 16. 短文进度和恢复位置不精确
 - 状态：`部分修复`（短文视为读完；字体/图片后的恢复锚点未改）
@@ -234,11 +235,11 @@
 - 建议：移动端状态；实际尺寸测量。
 
 ### 32. 确认/重置不一致
-- 状态：`待修`（范围已缩小）
-- 位置：`Settings.tsx`
-- 现象：清空进度的二次确认靠 `confirm` 状态机 + `onBlur`，与「清空全部数据」的弹窗交互不一致。
-- 备注：**个人词删除已有确认**（`Books.tsx` 用 `window.confirm`），此前 #32 与 #15 的记载互相矛盾，已按代码更正。
-- 建议：统一成和「清空全部数据」一致的弹窗组件。
+- 状态：`已修`
+- 位置：`src/components/settings/dialogs.tsx` `ResetProgressDialog`、`src/pages/Settings.tsx`
+- 现象：清空进度的二次确认靠 `confirm` 状态机 + `onBlur`，鼠标移开就复原，键盘用户尤其别扭；和「清空全部数据」的弹窗也不一致。
+- 处理：改为 `ResetProgressDialog`，与 `ResetAllDialog` 同一套结构：遮罩/Escape/取消可关闭，列出「会保留的内容」（个人词库、词书选择、学习计划、外观设置）与「自动备份不会删除」。
+- 备注：个人词删除仍是 `window.confirm`（`Books.tsx`），没有统一成弹窗——它是列表内的单条操作，用原生确认框更轻，暂不改。
 
 ### 33. 首次使用/空状态
 - 状态：`待修`
@@ -267,10 +268,11 @@
 - 建议：本地运行、数据目录、备份恢复、故障排查、词典重建。
 
 ### 38. 词典构建不可复现
-- 状态：`待修`
-- 位置：`scripts/build-dicts.mjs`、`scripts/build-reader-data.mjs`
+- 状态：`已修`
+- 位置：`scripts/build-dicts.mjs`、`scripts/build-reader-data.mjs`、`README.md`
 - 现象：从 `master` 拉取，无 commit pin/checksum；`LEARNWORD_RAW_DIR` 旧名。
-- 建议：固定版本、记录 hash、改名 `LEXICON_*`。
+- 处理：源地址固定到 commit（ECDICT `ab22ad3`、ipa-dict `972cd67`，2026-10-25 取 HEAD 并用 `curl -I` 验过 200）；每本词书、`index.json`、`lexicon.json`、`phrases.json` 顶层新增 `meta: { sourceCommit, sources, generatedAt }`；环境变量改为 `LEXICON_RAW_DIR`，旧名 `LEARNWORD_RAW_DIR` 保留兜底。
+- 备注：`meta` 只是新增字段，前端读取逻辑未变。已有的 `public/data/**` 没有重新生成，`meta` 要等下次执行 `npm run dicts` / `reader-data` 才会出现。
 
 ### 39. schema 迁移缺失
 - 状态：`待修`
@@ -278,18 +280,21 @@
 - 建议：客户端校验 + migrate 链 + 兼容性测试。
 
 ### 40. 代码组织
-- 状态：`待修`
-- 位置：`Study.tsx` 841 行、`Settings.tsx` 554 行、`Reader.tsx` 524 行
-- 建议：拆组件/hooks；共享 `fetchJson`；稳定 hook 返回值。
+- 状态：`部分修复`（Settings 已拆；Study/Reader 未动）
+- 位置：`src/pages/Settings.tsx`、`src/components/settings/*`、`src/hooks/useStorageData.ts`
+- 现象：`Settings.tsx` 已涨到 1221 行，混着展示、状态、服务端交互和弹窗。
+- 处理：`Settings.tsx` 1221 → 399 行。拆出 `components/settings/primitives.tsx`（Section/Toggle/Segmented）、`constants.ts`（STORAGE_FILES）、`format.ts`（formatBytes/formatBackupTime）、`LocalDataPanel.tsx`、`BackupPanel.tsx`、`dialogs.tsx`（恢复/清空全部/清空进度），以及 `hooks/useStorageData.ts`（数据目录、备份列表、导出/导入/隔离/恢复的状态与处理）。只搬不改逻辑，顺手消掉了那条 `set-state-in-effect` 警告（挂载时不再同步置 loading，初始值直接为 true）。
+- 备注：`Study.tsx` 879 行、`Reader.tsx` 663 行、`server/dataStorage.ts` 843 行仍未拆。
 
 ### 41. 仓库卫生与版本控制
 - 状态：`已修`（已初始化 Git，已纳入 `public/data`，已添加 MIT LICENSE）
 - 剩余：大文件策略、CI。
 
 ### 42. 安全边界（低）
-- 状态：`暂缓`
+- 状态：`部分修复`（导入大小已限制；鉴权与 CSP 仍是已知边界）
 - 现象：`/api/storage` 无鉴权，本机任意进程可读写；无 CSP；导入无大小限制。
-- 建议：限制导入大小，文档说明信任边界。
+- 处理：`GET /api/storage` 返回 `maxImportBytes`（= 服务端 `MAX_BODY_BYTES`，64 MB），导入前用它判断 `file.size`，超限直接给出提示，避免 `file.text()` 先把整份文件读进内存。客户端不再自己写死阈值，两边不会漂移。
+- 备注：仍无鉴权（本机任意进程可调）、无 CSP；只做了本机 Origin 校验。
 
 ## 本轮验证记录（2026-10-24）
 
@@ -390,6 +395,31 @@
 - hydration 超时闸门没有在真实慢存储下触发过（需要人为把 `readFile` 延迟或指向超大文件）。
 - 缓存写满的场景没有实测（只验证了代码路径与横幅文案）。
 - #9 的单词级孤儿记录仍在（见第 9 条备注）。
+
+## 2026-10-25 第五批（C/D 批次：体验一致性与工程）
+
+### 已完成
+
+- **#15 草稿自动保存**：`useArticleDraft` + 编辑器顶部恢复条，见上文第 15 条。
+- **#32 确认弹窗统一**：`ResetProgressDialog` 替代 `onBlur` 状态机，见上文第 32 条。
+- **#40 Settings 拆分**：1221 → 399 行，见上文第 40 条。新增 `src/components/settings/`（primitives / constants / format / LocalDataPanel / BackupPanel / dialogs）与 `src/hooks/useStorageData.ts`。
+- **#38 构建可复现**：两个词典脚本 pin 到 commit 并输出 `meta`，见上文第 38 条。
+- **#42 导入大小限制**：上限由服务端 `GET /api/storage` 下发（64 MB），见上文第 42 条。
+
+### 本轮验证
+
+- `npm run build` 通过；`Settings-*.js` 33.75 → 36.76 KB（gzip 9.58 → 10.07 KB，拆分后多了几个模块边界，属正常）；`App` / `index` / `Stats` chunk 未变。
+- `npx tsc -p tsconfig.app.json --noEmit` 无错误；`npx oxlint` **0 warning 0 error**（此前长期挂着 1 条 `set-state-in-effect`，拆分时顺手消掉）。
+- `npm test` 59 条全绿。
+- `GET /api/storage` 新增字段 `maxImportBytes = 67108864`，与 `MAX_BODY_BYTES` 一致。
+- 四个新模块在 dev 服务下均返回 200（`Settings.tsx`、`useStorageData.ts`、`ArticleComposer.tsx`、`dialogs.tsx`），说明无解析/导入错误。
+
+### 未验证 / 待办
+
+- **设置页没有在真实浏览器里点过**：拆分是纯搬移，靠 `tsc` + 构建 + 模块可加载保证接线正确，但弹窗、备份列表、导入导出这些交互没有实际点一遍。
+- 草稿恢复条、清空进度弹窗的视觉与键盘操作同样未实测。
+- `npm run dicts` / `reader-data` 没有执行（要下载几十 MB 并覆盖已提交产物），pin 的地址只用 `curl -I` 验过 200。
+- 导入大小限制只做了代码路径，没有构造超大文件实测提示文案。
 
 ## 本轮子代理分工
 

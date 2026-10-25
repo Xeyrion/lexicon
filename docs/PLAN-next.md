@@ -1,6 +1,7 @@
 # 下一轮修复计划（建议）
 
-> **状态（2026-10-25）**：批次 A 与 B 已完成，见 `docs/ISSUES.md`「第四批」。剩余：D1（拆 Settings.tsx）、C（#15 草稿 / #32 弹窗）、D2（#38）、D4（#42）。
+> **状态（2026-10-25 晚）**：A、B、C、D1、D2、D4 全部完成，见 `docs/ISSUES.md`「第四批」「第五批」。
+> 剩余：#33（首启引导）、#34（无障碍/键盘）、#11（时钟/时区）、#16（图片锚点）、#39（schema 迁移，暂缓），以及 M1/M2/M3/M5/M6 架构级项。
 >
 > 依据：2026-10-25 代码体检 + `docs/ISSUES.md` 现状逐条核对代码。
 > 目标：先把「会悄悄丢数据 / 会悄悄算错」的做完，再动结构，最后做体验。
@@ -9,6 +10,8 @@
 ## 一句话结论
 
 建议下一轮只做 **A + B + D1**（收尾与测试、三个数据安全项、Settings 拆分），顺手捎带 **D4**；#33/#34/#11/#39 与 M1/M2/M3/M5/M6 继续压着。理由见文末「为什么不按编号顺序做」。
+
+> 2026-10-25 更新：A、B、C、D1、D2、D4 已全部落地。下面的表格保留当时的判断，不再逐行回填状态（状态以 `docs/ISSUES.md` 为准）。
 
 ## 待办逐条裁决
 
@@ -104,10 +107,14 @@
 - **#15 草稿自动保存**：`ArticleComposer` 里 debounce 300ms 写 `sessionStorage`（key 带 articleId），进入时若有草稿提示"恢复未保存的修改"。不要写进 `reader.json`，避免污染数据。
 - **#32 缩水版**：`Settings.tsx` 的"清空进度"现在靠 `confirm` 状态机 + `onBlur` 二次确认，改成和"清空全部数据"一致的弹窗组件。个人词删除已有 `window.confirm`，可以不动（文档要改）。
 
-## 批次 D2/D4（顺手）
+## 批次 D2/D4（已完成）
 
-- **D4 #42**：`handleImport` 里先判 `file.size > 32MB` 直接拒绝；服务端 `MAX_BODY_BYTES` 已是 64MB，不用改。
-- **D2 #38**：`scripts/build-dicts.mjs` / `build-reader-data.mjs` 把 `master` 换成固定 commit、把源文件 sha256 写进输出 JSON 的 `meta`；环境变量 `LEARNWORD_RAW_DIR` → `LEXICON_RAW_DIR`（旧名保留一个版本）。
+- **D4 #42（导入大小限制）**：原计划在客户端写死 32MB，实际改成**由服务端下发**——`GET /api/storage` 增加 `maxImportBytes`（= `MAX_BODY_BYTES`，64 MB），客户端拿它和 `file.size` 比较，超限直接提示。
+  - 为什么不写死 32MB：`study.json` 一般只有几 MB，但 `reader.json` 存全文，单篇上限 20 万字符，约 160 篇长文就能到 64MB。写死 32MB 会把服务端本来能接受的备份挡掉，而且客户端一旦和服务端阈值不一致，就会出现「本地说太大、服务端其实能收」的怪现象。
+  - 它解决什么：`file.text()` 会先把整份文件读成字符串再 `JSON.parse`，200MB 的文件在报错之前就能把标签页卡死。这道检查只是**尽早失败并给出可读提示**，不是新的能力限制——超过 64MB 的备份，服务端本来也会以 413 拒绝。
+  - 有没有影响：正常备份不受影响（阈值等于服务端上限）；唯一的行为变化是「超大文件从卡死/413 变成一句明确提示」。
+- **D2 #38（构建可复现）**：源地址 pin 到 commit（ECDICT `ab22ad3`、ipa-dict `972cd67`），输出 JSON 顶层加 `meta: { sourceCommit, sources, generatedAt }`；环境变量改为 `LEXICON_RAW_DIR`，旧名 `LEARNWORD_RAW_DIR` 仍可读。
+  - 没做校验和（原计划里的 sha256）：源文件几十 MB，边下边算需要改动流式读取逻辑；先记录 commit + URL + license，已经足够判断「这份数据是哪来的」。
 
 ---
 
