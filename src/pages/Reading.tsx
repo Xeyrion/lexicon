@@ -109,7 +109,14 @@ export default function Reading() {
                   <ProgressRing value={percent} size={68} stroke={5} label={`${percent}%`} />
                 </div>
               </div>
-              <Link to={`/read/${latest.id}`} className="btn btn-primary mt-4 sm:mt-5">
+              <Link
+                to={
+                  percent >= 98
+                    ? `/read/${latest.id}?from=start`
+                    : `/read/${latest.id}`
+                }
+                className="btn btn-primary mt-4 sm:mt-5"
+              >
                 {percent >= 98 ? '重新阅读' : percent > 0 ? '继续阅读' : '开始阅读'}
                 <ArrowRight size={15} strokeWidth={1.8} />
               </Link>

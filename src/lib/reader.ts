@@ -106,26 +106,27 @@ export function lookupCandidates(raw: string): string[] {
       candidates.add(candidate.slice(0, -1))
     }
     if (candidate.endsWith('ed')) {
-      candidates.add(candidate.slice(0, -2))
+      // 先尝试“词干 + e”（hoped -> hope），再尝试去 e 词干（hoped -> hop）。
       candidates.add(candidate.slice(0, -1))
+      candidates.add(candidate.slice(0, -2))
     }
     if (candidate.endsWith('ing')) {
       const stem = candidate.slice(0, -3)
-      candidates.add(stem)
       candidates.add(`${stem}e`)
+      candidates.add(stem)
       if (stem.length > 2 && stem.at(-1) === stem.at(-2)) {
         candidates.add(stem.slice(0, -1))
       }
     }
     if (candidate.endsWith('er')) {
       const stem = candidate.slice(0, -2)
-      candidates.add(stem)
       candidates.add(`${stem}e`)
+      candidates.add(stem)
     }
     if (candidate.endsWith('est')) {
       const stem = candidate.slice(0, -3)
-      candidates.add(stem)
       candidates.add(`${stem}e`)
+      candidates.add(stem)
     }
   }
 

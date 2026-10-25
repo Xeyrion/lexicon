@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import { splitParagraphs, tokenizeParagraph } from '../../lib/reader'
 
 interface ReaderTextProps {
@@ -7,7 +7,11 @@ interface ReaderTextProps {
   activeToken: { paragraph: number; token: number } | null
 }
 
-export function ReaderText({ text, fontSize, activeToken }: ReaderTextProps) {
+export const ReaderText = memo(function ReaderText({
+  text,
+  fontSize,
+  activeToken,
+}: ReaderTextProps) {
   const paragraphs = useMemo(
     () => splitParagraphs(text).map((paragraph) => tokenizeParagraph(paragraph)),
     [text],
@@ -39,4 +43,4 @@ export function ReaderText({ text, fontSize, activeToken }: ReaderTextProps) {
       ))}
     </div>
   )
-}
+})

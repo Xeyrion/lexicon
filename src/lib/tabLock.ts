@@ -6,7 +6,7 @@ import {
 const LOCK_NAME = 'lexicon-writer'
 const CHANNEL_NAME = 'lexicon-tab'
 
-export type TabLockState = 'checking' | 'writer' | 'follower'
+export type TabLockState = 'checking' | 'writer' | 'follower' | 'unsupported'
 
 const listeners = new Set<() => void>()
 let state: TabLockState = 'checking'
@@ -50,7 +50,12 @@ function scheduleRetry(delay: number): void {
 }
 
 function canUseLocks(): boolean {
-  return typeof navigator !== 'undefined' && 'locks' in navigator
+  if (typeof navigator === 'undefined') return false
+  try {
+    return typeof navigator.locks?.request === 'function'
+  } catch {
+    return false
+  }
 }
 
 function acquire(): Promise<boolean> {
@@ -94,7 +99,7 @@ function acquire(): Promise<boolean> {
 }
 
 async function attemptAcquire(): Promise<void> {
-  if (state === 'writer' || takeoverInFlight) return
+  if (state === 'writer' || state === 'unsupported' || takeoverInFlight) return
   if (Date.now() < retryNotBefore) {
     scheduleRetry(retryNotBefore - Date.now())
     return
@@ -149,8 +154,9 @@ export async function startTabWriter(): Promise<void> {
   }
 
   if (!canUseLocks()) {
-    setStorageWriterEnabled(true)
-    setState('writer')
+    // 没有 Web Locks 时不自动降级为 writer，先让用户了解风险并明确选择。
+    setStorageWriterEnabled(false)
+    setState('unsupported')
     return
   }
 
@@ -164,6 +170,12 @@ export async function startTabWriter(): Promise<void> {
   setStorageWriterEnabled(false)
   setState('follower')
   scheduleRetry(retryDelay)
+}
+
+export function enterWithoutLock(): void {
+  if (state !== 'unsupported') return
+  setStorageWriterEnabled(true)
+  setState('writer')
 }
 
 export function requestTakeover(): void {

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react'
 import {
+  enterWithoutLock,
   getTabLockState,
   requestTakeover,
   retryTabLock,
@@ -65,6 +66,29 @@ function BlockedScreen() {
   )
 }
 
+function UnsupportedScreen() {
+  return (
+    <div className="flex min-h-svh items-center justify-center bg-paper px-6">
+      <div className="surface-card w-full max-w-md p-8 text-center">
+        <p className="kicker">Lexicon</p>
+        <h1 className="display mt-3 text-2xl text-ink">当前浏览器不支持单写入锁</h1>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          无法自动保证多个标签页不会同时写入数据。请使用最新版 Chrome、Edge、Firefox
+          或 Safari；如果只能用当前浏览器，请只打开一个标签页，再点击下方按钮继续。
+        </p>
+        <div className="mt-6 flex justify-center">
+          <button type="button" className="btn btn-primary" onClick={enterWithoutLock}>
+            仍然进入
+          </button>
+        </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-faint">
+          单标签页使用时可以正常工作；同时打开多个标签页仍可能互相覆盖数据。
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function TabGate() {
   const state = useSyncExternalStore(
     subscribeTabLockState,
@@ -77,6 +101,7 @@ export default function TabGate() {
   }, [])
 
   if (state === 'checking') return <StartupScreen />
+  if (state === 'unsupported') return <UnsupportedScreen />
   if (state === 'follower') return <BlockedScreen />
 
   return (

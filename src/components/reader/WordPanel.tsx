@@ -21,6 +21,9 @@ interface WordPanelProps {
   accent: Accent
   rate: number
   personalWords: PersonalWord[]
+  loading?: boolean
+  error?: string | null
+  onRetry?: () => void
   onAdd: (entry: WordEntry) => string | null
   onOpenWord: (word: string) => void
   onClose: () => void
@@ -31,6 +34,9 @@ export function WordPanel({
   accent,
   rate,
   personalWords,
+  loading = false,
+  error = null,
+  onRetry,
   onAdd,
   onOpenWord,
   onClose,
@@ -104,6 +110,25 @@ export function WordPanel({
               {line}
             </p>
           ))}
+        </div>
+      ) : loading ? (
+        <div className="mt-5 rounded-xl border border-dashed border-line bg-sunken/50 p-4">
+          <p className="text-sm text-muted">
+            {lookup.kind === 'phrase' ? '短语词典加载中…' : '词典加载中…'}
+          </p>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
+            加载完成后会自动显示查询结果，无需重新点击。
+          </p>
+        </div>
+      ) : error ? (
+        <div className="mt-5 rounded-xl border border-dashed border-line bg-sunken/50 p-4">
+          <p className="text-sm text-accent">词典加载失败</p>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-faint">{error}</p>
+          {onRetry && (
+            <button type="button" className="btn btn-secondary mt-3" onClick={onRetry}>
+              重试加载
+            </button>
+          )}
         </div>
       ) : (
         <div className="mt-5 rounded-xl border border-dashed border-line bg-sunken/50 p-4">

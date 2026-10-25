@@ -1,14 +1,17 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type RefObject,
 } from 'react'
 import { ArrowLeft, BookOpenText, Languages, Minus, MousePointer2, Pencil, Plus } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { HoverPreview } from '../components/reader/HoverPreview'
+import { ReaderProgress, type ReaderProgressStore } from '../components/reader/ReaderProgress'
 import { ReaderText } from '../components/reader/ReaderText'
 import { SelectionAction } from '../components/reader/SelectionAction'
 import { WordPanel } from '../components/reader/WordPanel'
@@ -31,6 +34,76 @@ interface HoverState {
 interface SelectionState {
   text: string
   rect: ReaderRect
+}
+
+interface ReaderPanelQuery {
+  kind: 'word' | 'phrase'
+  query: string
+}
+
+function createReaderProgressStore(initialProgress: number): ReaderProgressStore {
+  let percent = Math.round(Math.min(1, Math.max(0, initialProgress)) * 100)
+  const listeners = new Set<() => void>()
+
+  return {
+    getPercent: () => percent,
+    setPercent: (next) => {
+      const clamped = Math.min(100, Math.max(0, next))
+      if (clamped === percent) return
+      percent = clamped
+      listeners.forEach((listener) => listener())
+    },
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+  }
+}
+
+/**
+ * 在 rAF 中测量文章滚动进度，只写入独立 store（百分比变化时才通知进度条），
+ * 避免每帧重渲染整个阅读页。
+ */
+function useReaderProgressTracker(
+  store: ReaderProgressStore,
+  articleRef: RefObject<HTMLElement | null>,
+  initialProgress: number,
+  onProgress: (progress: number) => void,
+) {
+  useEffect(() => {
+    let frame = 0
+
+    const measure = () => {
+      const element = articleRef.current
+      if (!element) return
+      const rect = element.getBoundingClientRect()
+      const total = rect.height - window.innerHeight
+      // 不足一屏的短文直接视为读完，避免永远停在 0%。
+      const progress = total <= 0 ? 1 : Math.min(1, Math.max(0, -rect.top / total))
+      onProgress(progress)
+      store.setPercent(Math.round(progress * 100))
+    }
+
+    const onScroll = () => {
+      if (frame) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        measure()
+      })
+    }
+
+    // 有保存进度时先让恢复滚动触发测量，避免挂载瞬间把进度闪成 0%。
+    if (initialProgress <= 0) measure()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      if (frame) window.cancelAnimationFrame(frame)
+    }
+  }, [articleRef, initialProgress, onProgress, store])
 }
 
 function toRect(rect: DOMRect): ReaderRect {
@@ -68,13 +141,15 @@ function ReaderHint({
   error,
   wordCount,
   phraseCount,
+  onRetry,
 }: {
   loading: boolean
   error: string | null
   wordCount: number
   phraseCount: number
+  onRetry: () => void
 }) {
-  if (loading) {
+  if (loading && !error) {
     return (
       <div className="surface-flat animate-pulse p-5">
         <div className="h-3 w-20 rounded-full bg-sunken" />
@@ -92,7 +167,12 @@ function ReaderHint({
       <p className="kicker">Dictionary</p>
       <p className="display mt-3 text-xl text-ink">读的时候，随手查</p>
       {error ? (
-        <p className="mt-3 text-xs leading-relaxed text-accent">{error}</p>
+        <div className="mt-3">
+          <p className="text-xs leading-relaxed text-accent">{error}</p>
+          <button type="button" className="btn btn-secondary mt-3 w-full" onClick={onRetry}>
+            重试加载
+          </button>
+        </div>
       ) : (
         <>
           <ul className="mt-4 space-y-2.5 text-[11px] leading-relaxed text-muted">
@@ -118,7 +198,7 @@ function ReaderHint({
   )
 }
 
-function ReaderView({ article }: { article: ReaderArticle }) {
+function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart: boolean }) {
   const fontSize = useReaderStore((state) => state.settings.fontSize)
   const setFontSize = useReaderStore((state) => state.setFontSize)
   const setArticleProgress = useReaderProgressStore((state) => state.setProgress)
@@ -129,56 +209,79 @@ function ReaderView({ article }: { article: ReaderArticle }) {
   const rate = useAppStore((state) => state.settings.rate)
   const personalWords = useAppStore((state) => state.personalWords)
   const addPersonalWord = useAppStore((state) => state.addPersonalWord)
-  const dictionary = useReaderDictionary()
+  const {
+    lookupWord,
+    lookupPhrase,
+    lookupWordsInPhrase,
+    loading: dictionaryLoading,
+    wordLoading,
+    phraseLoading,
+    wordError,
+    phraseError,
+    wordCount,
+    phraseCount,
+    retry: retryDictionary,
+  } = useReaderDictionary()
+
+  const dictionaryErrorText = wordError
+    ? `单词词典加载失败：${wordError}${phraseError ? `；短语词典也加载失败：${phraseError}` : ''}`
+    : phraseError
+      ? `短语词典加载失败：${phraseError}（单词查询不受影响）`
+      : null
 
   const articleRef = useRef<HTMLElement>(null)
-  const [initialProgress] = useState(savedProgress)
-  const progressRef = useRef(savedProgress)
+  const [initialProgress] = useState(() => (fromStart ? 0 : savedProgress))
+  const progressRef = useRef(initialProgress)
+  const [progressStore] = useState(() => createReaderProgressStore(initialProgress))
   const saveTimer = useRef<number | undefined>(undefined)
   const hoverTimer = useRef<number | undefined>(undefined)
   const hideTimer = useRef<number | undefined>(undefined)
 
-  const [panel, setPanel] = useState<ReaderLookup | null>(null)
+  const [panelQuery, setPanelQuery] = useState<ReaderPanelQuery | null>(null)
   const [activeToken, setActiveToken] = useState<{ paragraph: number; token: number } | null>(null)
   const [hover, setHover] = useState<HoverState | null>(null)
   const [selectionAction, setSelectionAction] = useState<SelectionState | null>(null)
-  const [displayProgress, setDisplayProgress] = useState(savedProgress)
+  const panelOpen = panelQuery !== null
+
+  // 词条只在查询时记录 query，词典加载完成后自动按最新词典重算。
+  const panel = useMemo<ReaderLookup | null>(() => {
+    if (!panelQuery) return null
+    if (panelQuery.kind === 'phrase') {
+      return {
+        ...panelQuery,
+        entry: lookupPhrase(panelQuery.query),
+        words: lookupWordsInPhrase(panelQuery.query),
+      }
+    }
+    return {
+      ...panelQuery,
+      entry: lookupWord(panelQuery.query),
+      words: [],
+    }
+  }, [lookupPhrase, lookupWord, lookupWordsInPhrase, panelQuery])
 
   const closePanel = useCallback(() => {
-    setPanel(null)
+    setPanelQuery(null)
     setActiveToken(null)
   }, [])
 
   const openWord = useCallback(
     (raw: string, token?: { paragraph: number; token: number }) => {
-      setPanel({
-        kind: 'word',
-        query: raw,
-        entry: dictionary.lookupWord(raw),
-        words: [],
-      })
+      setPanelQuery({ kind: 'word', query: raw })
       setActiveToken(token ?? null)
       setHover(null)
       setSelectionAction(null)
     },
-    [dictionary],
+    [],
   )
 
-  const openPhrase = useCallback(
-    (raw: string) => {
-      setPanel({
-        kind: 'phrase',
-        query: raw,
-        entry: dictionary.lookupPhrase(raw),
-        words: dictionary.lookupWordsInPhrase(raw),
-      })
-      setActiveToken(null)
-      setHover(null)
-      setSelectionAction(null)
-      window.getSelection()?.removeAllRanges()
-    },
-    [dictionary],
-  )
+  const openPhrase = useCallback((raw: string) => {
+    setPanelQuery({ kind: 'phrase', query: raw })
+    setActiveToken(null)
+    setHover(null)
+    setSelectionAction(null)
+    window.getSelection()?.removeAllRanges()
+  }, [])
 
   const addEntry = useCallback(
     (entry: WordEntry) =>
@@ -196,27 +299,24 @@ function ReaderView({ article }: { article: ReaderArticle }) {
     touchArticle(article.id, article.progress)
   }, [article.id, article.progress, touchArticle])
 
-  const updateProgress = useCallback(() => {
-    const element = articleRef.current
-    if (!element) return
-    const rect = element.getBoundingClientRect()
-    const total = Math.max(1, rect.height - window.innerHeight)
-    const next = Math.min(1, Math.max(0, -rect.top / total))
-    progressRef.current = next
-    setDisplayProgress(next)
-    if (saveTimer.current) window.clearTimeout(saveTimer.current)
-    saveTimer.current = window.setTimeout(() => {
-      setArticleProgress(article.id, progressRef.current)
-    }, 600)
-  }, [article.id, setArticleProgress])
+  const handleProgress = useCallback(
+    (next: number) => {
+      progressRef.current = next
+      if (saveTimer.current) window.clearTimeout(saveTimer.current)
+      saveTimer.current = window.setTimeout(() => {
+        setArticleProgress(article.id, progressRef.current)
+      }, 600)
+    },
+    [article.id, setArticleProgress],
+  )
 
   useEffect(() => {
+    if (!hover && !selectionAction) return
     let frame = 0
     const onScroll = () => {
       if (frame) return
       frame = window.requestAnimationFrame(() => {
         frame = 0
-        updateProgress()
         setHover(null)
         setSelectionAction(null)
       })
@@ -226,9 +326,14 @@ function ReaderView({ article }: { article: ReaderArticle }) {
       window.removeEventListener('scroll', onScroll)
       if (frame) window.cancelAnimationFrame(frame)
     }
-  }, [updateProgress])
+  }, [hover, selectionAction])
 
   useEffect(() => {
+    if (fromStart) {
+      setArticleProgress(article.id, 0)
+      window.scrollTo({ top: 0, behavior: 'instant' })
+      return
+    }
     if (initialProgress <= 0) return
     let cancelled = false
     const restore = () => {
@@ -247,7 +352,9 @@ function ReaderView({ article }: { article: ReaderArticle }) {
       cancelled = true
       window.cancelAnimationFrame(frame)
     }
-  }, [initialProgress])
+  }, [article.id, fromStart, initialProgress, setArticleProgress])
+
+  useReaderProgressTracker(progressStore, articleRef, initialProgress, handleProgress)
 
   useEffect(() => {
     const save = () => setArticleProgress(article.id, progressRef.current)
@@ -265,19 +372,19 @@ function ReaderView({ article }: { article: ReaderArticle }) {
   }, [article.id, setArticleProgress])
 
   useEffect(() => {
-    if (!panel) return
+    if (!panelOpen) return
     if (!window.matchMedia('(max-width: 1023px)').matches) return
     const original = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
       document.body.style.overflow = original
     }
-  }, [panel])
+  }, [panelOpen])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      setPanel(null)
+      setPanelQuery(null)
       setActiveToken(null)
       setHover(null)
       setSelectionAction(null)
@@ -299,7 +406,7 @@ function ReaderView({ article }: { article: ReaderArticle }) {
     if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
     if (hideTimer.current) window.clearTimeout(hideTimer.current)
     hoverTimer.current = window.setTimeout(() => {
-      const entry = dictionary.lookupWord(raw)
+      const entry = lookupWord(raw)
       if (!entry) return
       setHover({ word: raw, entry, rect: toRect(target.getBoundingClientRect()) })
     }, 280)
@@ -347,8 +454,6 @@ function ReaderView({ article }: { article: ReaderArticle }) {
     setSelectionAction({ text, rect: toRect(rect) })
   }
 
-  const percent = Math.round(displayProgress * 100)
-
   return (
     <div>
       <div className="sticky top-0 z-20 -mx-4 border-b border-line/70 bg-paper/85 backdrop-blur-xl sm:-mx-6 lg:-mx-10">
@@ -360,15 +465,7 @@ function ReaderView({ article }: { article: ReaderArticle }) {
             <p className="kicker">Reading</p>
             <p className="truncate text-xs text-muted">{article.title}</p>
           </div>
-          <div className="hidden items-center gap-2 sm:flex">
-            <span className="text-[10px] tabular-nums text-faint">{percent}%</span>
-            <div className="h-1 w-16 overflow-hidden rounded-full bg-sunken">
-              <div
-                className="h-full rounded-full bg-accent transition-[width] duration-300"
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-          </div>
+          <ReaderProgress store={progressStore} variant="inline" />
           <Link
             to={`/read/${article.id}/edit`}
             className="icon-button h-8 w-8 shrink-0"
@@ -399,12 +496,7 @@ function ReaderView({ article }: { article: ReaderArticle }) {
             </button>
           </div>
         </div>
-        <div className="h-px bg-line/70">
-          <div
-            className="h-full bg-accent transition-[width] duration-300"
-            style={{ width: `${percent}%` }}
-          />
-        </div>
+        <ReaderProgress store={progressStore} variant="bar" />
       </div>
 
       <div className="grid gap-8 pt-8 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -424,6 +516,30 @@ function ReaderView({ article }: { article: ReaderArticle }) {
                 轻点单词查看释义，长按选择多个词查短语。
               </p>
             </header>
+
+            {(dictionaryLoading || wordError || phraseError) && (
+              <div className="mt-5 rounded-xl border border-line bg-sunken/50 px-4 py-3 text-[11px] leading-relaxed text-muted lg:hidden">
+                {wordError && <p className="text-accent">单词词典加载失败：{wordError}</p>}
+                {phraseError && (
+                  <p className={wordError ? 'mt-1 text-accent' : 'text-accent'}>
+                    短语词典加载失败：{phraseError}
+                    {!wordError ? '（单词查询不受影响）' : ''}
+                  </p>
+                )}
+                {!wordError && !phraseError && (
+                  <p>正在加载阅读词典…首次加载约 7 MB，加载完成后即可点击单词或短语查询。</p>
+                )}
+                {(wordError || phraseError) && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary mt-2"
+                    onClick={retryDictionary}
+                  >
+                    重试加载
+                  </button>
+                )}
+              </div>
+            )}
 
             <div
               className="pt-8"
@@ -451,16 +567,20 @@ function ReaderView({ article }: { article: ReaderArticle }) {
                 accent={accent}
                 rate={rate}
                 personalWords={personalWords}
+                loading={panel.kind === 'word' ? wordLoading : phraseLoading}
+                error={panel.kind === 'word' ? wordError : phraseError}
+                onRetry={retryDictionary}
                 onAdd={addEntry}
                 onOpenWord={openWord}
                 onClose={closePanel}
               />
             ) : (
               <ReaderHint
-                loading={dictionary.loading}
-                error={dictionary.error}
-                wordCount={dictionary.wordCount}
-                phraseCount={dictionary.phraseCount}
+                loading={dictionaryLoading}
+                error={dictionaryErrorText}
+                wordCount={wordCount}
+                phraseCount={phraseCount}
+                onRetry={retryDictionary}
               />
             )}
           </div>
@@ -494,6 +614,9 @@ function ReaderView({ article }: { article: ReaderArticle }) {
               accent={accent}
               rate={rate}
               personalWords={personalWords}
+              loading={panel.kind === 'word' ? wordLoading : phraseLoading}
+              error={panel.kind === 'word' ? wordError : phraseError}
+              onRetry={retryDictionary}
               onAdd={addEntry}
               onOpenWord={openWord}
               onClose={closePanel}
@@ -507,6 +630,8 @@ function ReaderView({ article }: { article: ReaderArticle }) {
 
 export default function Reader() {
   const { articleId } = useParams<{ articleId: string }>()
+  const [searchParams] = useSearchParams()
+  const fromStart = searchParams.get('from') === 'start'
   const hydrated = useReaderHydrated()
   const articles = useReaderStore((state) => state.articles)
   const article = articles.find((item) => item.id === articleId)
@@ -528,5 +653,11 @@ export default function Reader() {
     )
   }
 
-  return <ReaderView key={article.id} article={article} />
+  return (
+    <ReaderView
+      key={`${article.id}:${fromStart ? 'start' : 'resume'}`}
+      article={article}
+      fromStart={fromStart}
+    />
+  )
 }
