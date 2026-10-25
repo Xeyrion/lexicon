@@ -1,4 +1,4 @@
-import { Suspense, useSyncExternalStore } from 'react'
+import { Suspense, useSyncExternalStore, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import {
   AlertCircle,
@@ -13,12 +13,16 @@ import {
   Sun,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { dayTotal, dateKey, getStreak } from '../lib/date'
 import {
+  getCacheWriteFailed,
   getFileStorageError,
   getFileStorageStatus,
+  getHydrationWriteBlocked,
+  subscribeCacheWriteFailed,
   subscribeFileStorageStatus,
+  subscribeHydrationWriteBlocked,
 } from '../lib/storage'
 import { useIsDark } from '../lib/useIsDark'
 import { useAppStore } from '../store/appStore'
@@ -39,6 +43,16 @@ function navClass(active: boolean): string {
     'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
     active ? 'bg-surface text-ink shadow-sm' : 'text-muted hover:bg-surface/70 hover:text-ink',
   ].join(' ')
+}
+
+function Notice({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="mb-5 flex flex-wrap items-start gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
+      <AlertCircle size={16} className="mt-0.5 shrink-0 text-accent" strokeWidth={1.8} />
+      <span className="min-w-0 flex-1">{children}</span>
+      {action}
+    </div>
+  )
 }
 
 function ThemeButton({ wide = false }: { wide?: boolean }) {
@@ -80,6 +94,16 @@ export default function Layout() {
     () => '',
   )
   const hasWriteConflict = storageError.includes('另一个窗口更新')
+  const hydrationBlocked = useSyncExternalStore(
+    subscribeHydrationWriteBlocked,
+    getHydrationWriteBlocked,
+    () => false,
+  )
+  const cacheFailed = useSyncExternalStore(
+    subscribeCacheWriteFailed,
+    getCacheWriteFailed,
+    () => false,
+  )
 
   return (
     <div className="min-h-svh">
@@ -155,27 +179,53 @@ export default function Layout() {
               : 'pb-28 pt-7 lg:pb-16 lg:pt-10'
           }`}
         >
-          {(storageStatus === 'offline' || storageStatus === 'error') &&
-            (!isReader || storageStatus === 'error') && (
-            <div className="mb-5 flex flex-wrap items-start gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
-              <AlertCircle size={16} className="mt-0.5 shrink-0 text-accent" strokeWidth={1.8} />
-              <span className="min-w-0 flex-1">
-                {storageStatus === 'offline'
-                  ? '本地文件服务未连接，更改暂时保存在浏览器缓存中。请通过 start.cmd 启动应用。'
-                  : hasWriteConflict
-                    ? '本地文件已被另一个窗口更新，本页已停止自动写入以避免覆盖。当前未保存的更改不会在刷新后保留；如需保留，请先到设置页导出备份。'
-                    : `本地文件读写失败：${storageError || '未知错误'}。更改暂时保存在浏览器缓存中。如果数据文件损坏，请先备份或重命名该文件，然后重新加载页面。`}
-              </span>
-              {storageStatus === 'error' && (
+          {hydrationBlocked && (
+            <Notice
+              action={
                 <button
                   type="button"
                   className="btn btn-secondary whitespace-nowrap"
                   onClick={() => window.location.reload()}
                 >
-                  {hasWriteConflict ? '放弃更改并重新加载' : '重新加载页面'}
+                  重新加载
                 </button>
-              )}
-            </div>
+              }
+            >
+              数据加载超过 2.5 秒，已暂停保存，以免用未加载完的内容覆盖数据文件。这期间的改动不会保存，请重新加载后再继续。
+            </Notice>
+          )}
+          {cacheFailed && (
+            <Notice
+              action={
+                <Link to="/settings" className="btn btn-secondary whitespace-nowrap">
+                  去导出备份
+                </Link>
+              }
+            >
+              浏览器缓存写入失败（可能已满），当前更改只保存在内存里，刷新或关闭页面就会丢失。请立即导出备份。
+            </Notice>
+          )}
+          {(storageStatus === 'offline' || storageStatus === 'error') &&
+            (!isReader || storageStatus === 'error') && (
+            <Notice
+              action={
+                storageStatus === 'error' ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary whitespace-nowrap"
+                    onClick={() => window.location.reload()}
+                  >
+                    {hasWriteConflict ? '放弃更改并重新加载' : '重新加载页面'}
+                  </button>
+                ) : undefined
+              }
+            >
+              {storageStatus === 'offline'
+                ? '本地文件服务未连接，更改暂时保存在浏览器缓存中。请通过 start.cmd 启动应用。'
+                : hasWriteConflict
+                  ? '本地文件已被另一个窗口更新，本页已停止自动写入以避免覆盖。当前未保存的更改不会在刷新后保留；如需保留，请先到设置页导出备份。'
+                  : `本地文件读写失败：${storageError || '未知错误'}。更改暂时保存在浏览器缓存中。如果数据文件损坏，请先备份或重命名该文件，然后重新加载页面。`}
+            </Notice>
           )}
           <AnimatePresence mode="wait" initial={false}>
             <motion.div

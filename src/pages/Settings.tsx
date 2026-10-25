@@ -17,21 +17,38 @@ import {
   Volume2,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
-import { speakWord } from '../lib/speech'
-import { fetchStorageInfo, type StorageInfo, type StorageKind } from '../lib/storageInfo'
-import { waitForReaderHydration } from '../lib/useReaderHydrated'
 import {
-  isPlainObject,
-  sanitizeReaderArticles,
-  sanitizeReaderSettings,
-} from '../lib/validation'
-import { useAppStore } from '../store/appStore'
+  buildReaderPayload,
+  buildReaderProgressPayload,
+  buildStudyPayload,
+  parseSnapshot,
+  type ParsedSnapshot,
+} from '../lib/snapshotImport'
+import { speakWord } from '../lib/speech'
+import {
+  discardPersistedKind,
+  flushPersistedStorage,
+  replacePersistedKind,
+} from '../lib/storage'
+import {
+  fetchBackupList,
+  fetchStorageInfo,
+  importStorageData,
+  quarantineKind,
+  restoreBackup,
+  type StorageBackupEntry,
+  type StorageBackupList,
+  type StorageInfo,
+  type StorageKind,
+} from '../lib/storageInfo'
+import { waitForReaderHydration } from '../lib/useReaderHydrated'
+import { DEFAULT_SETTINGS, useAppStore } from '../store/appStore'
 import {
   articlesWithProgress,
   useReaderProgressStore,
 } from '../store/readerProgressStore'
 import { DEFAULT_READER_SETTINGS, useReaderStore } from '../store/readerStore'
-import type { Accent, ReaderArticle, ReaderSettings, Snapshot, ThemeMode } from '../types'
+import type { Accent, Snapshot, ThemeMode } from '../types'
 
 interface Message {
   type: 'ok' | 'error'
@@ -166,19 +183,27 @@ function LocalDataInfo({
   loading,
   error,
   onRefresh,
+  onQuarantine,
+  quarantineBusy,
 }: {
   info: StorageInfo | null
   loading: boolean
   error: string | null
   onRefresh: () => void
+  onQuarantine: (kind: StorageKind) => void
+  quarantineBusy: StorageKind | null
 }) {
+  const corrupted = info
+    ? STORAGE_FILES.filter(({ kind }) => info.files[kind].corrupted)
+    : []
+
   return (
     <div className="mt-6 rounded-2xl border border-line bg-paper-deep/25 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm text-ink">本地数据</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
-            数据文件与每日备份都保存在本机。
+            数据文件与每日备份都保存在本机。浏览器缓存只是副本，容量上限约 5 MB；写入失败时页面顶部会提示，请及时导出备份。
           </p>
         </div>
         <button
@@ -221,6 +246,33 @@ function LocalDataInfo({
             </div>
           </div>
 
+          {corrupted.length > 0 && (
+            <div className="rounded-xl border border-accent/30 bg-accent-wash px-3 py-2.5">
+              <p className="text-[11px] font-medium text-accent">检测到损坏的数据文件</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-accent">
+                隔离会把文件重命名为 {corrupted[0]?.kind}.corrupt-*.json 保留下来，不会删除。
+                隔离后页面会重新加载，并尝试从浏览器缓存恢复；也可以先到下方备份列表中恢复。
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {corrupted.map(({ kind, label }) => (
+                  <li key={kind} className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 break-all text-[11px] text-ink-soft">
+                      {kind}.json · {label}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost shrink-0 text-[11px] text-accent disabled:opacity-50"
+                      onClick={() => onQuarantine(kind)}
+                      disabled={quarantineBusy !== null}
+                    >
+                      {quarantineBusy === kind ? '隔离中…' : '隔离损坏文件'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div>
             <p className="kicker">数据文件</p>
             {STORAGE_FILES.some(({ kind }) => info.files[kind].exists) ? (
@@ -234,6 +286,11 @@ function LocalDataInfo({
                       <span className="min-w-0 break-all text-ink-soft">
                         {kind}.json
                         <span className="text-faint"> · {label}</span>
+                        {info.files[kind].corrupted && (
+                          <span className="ml-1.5 rounded-full bg-accent-wash px-1.5 py-0.5 text-[9px] text-accent">
+                            损坏
+                          </span>
+                        )}
                       </span>
                       <span className="shrink-0 tabular-nums text-ink">
                         {formatBytes(info.files[kind].bytes ?? 0)}
@@ -271,6 +328,194 @@ function LocalDataInfo({
         </div>
       )}
     </div>
+  )
+}
+
+function BackupManager({
+  list,
+  loading,
+  error,
+  onRefresh,
+  onRestore,
+}: {
+  list: StorageBackupList | null
+  loading: boolean
+  error: string | null
+  onRefresh: () => void
+  onRestore: (entry: StorageBackupEntry) => void
+}) {
+  const groups = STORAGE_FILES.map(({ kind, label }) => ({
+    kind,
+    label,
+    entries: list?.backups.filter((entry) => entry.kind === kind) ?? [],
+  }))
+
+  return (
+    <div className="mt-4 rounded-2xl border border-line bg-paper-deep/25 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-ink">自动备份</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
+            恢复会用备份覆盖当前这一类数据；恢复前会自动把当前文件另存为一份安全备份。
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-ghost text-xs disabled:opacity-50"
+          onClick={onRefresh}
+          disabled={loading}
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : undefined} />
+          {loading ? '读取中' : '刷新'}
+        </button>
+      </div>
+
+      {error && (
+        <p className="mt-3 rounded-xl border border-accent/25 bg-accent-wash px-3 py-2 text-[11px] leading-relaxed text-accent">
+          {error}
+        </p>
+      )}
+
+      {loading && !list && (
+        <p className="mt-3 text-[11px] text-faint" aria-live="polite">
+          正在读取备份列表…
+        </p>
+      )}
+
+      {list && list.backups.length === 0 && (
+        <p className="mt-3 text-[11px] text-faint">还没有自动备份。</p>
+      )}
+
+      {list && list.backups.length > 0 && (
+        <div className="mt-4 max-h-80 space-y-4 overflow-y-auto pr-1">
+          {groups.map((group) => (
+            <div key={group.kind}>
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="kicker">
+                  {group.label} · {group.kind}.json
+                </p>
+                <span className="text-[10px] tabular-nums text-faint">
+                  {group.entries.length} 份
+                </span>
+              </div>
+              {group.entries.length === 0 ? (
+                <p className="mt-1 text-[10px] text-faint">暂无</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-line/70">
+                  {group.entries.map((entry) => (
+                    <li
+                      key={entry.name}
+                      className="flex flex-wrap items-center justify-between gap-2 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="break-all text-[11px] leading-relaxed text-ink-soft">
+                          {entry.name}
+                        </p>
+                        <p className="text-[10px] text-faint">
+                          {formatBackupTime(entry.modifiedAt)} · {formatBytes(entry.bytes)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost shrink-0 text-[11px]"
+                        onClick={() => onRestore(entry)}
+                      >
+                        <RotateCcw size={12} />
+                        恢复
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RestoreBackupDialog({
+  entry,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  entry: StorageBackupEntry
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) onCancel()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = originalOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [busy, onCancel])
+
+  const label =
+    STORAGE_FILES.find(({ kind }) => kind === entry.kind)?.label ?? entry.kind
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/35 p-4 backdrop-blur-sm"
+      onClick={() => {
+        if (!busy) onCancel()
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="restore-backup-title"
+        aria-describedby="restore-backup-description"
+        className="w-full max-w-md rounded-[1.75rem] border border-line bg-surface p-6 shadow-[var(--shadow-float)] sm:p-7"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sunken text-muted">
+            <RotateCcw size={16} strokeWidth={1.8} />
+          </span>
+          <div>
+            <h2 id="restore-backup-title" className="display text-xl text-ink">
+              恢复这份备份？
+            </h2>
+            <p id="restore-backup-description" className="mt-1 text-xs leading-relaxed text-muted">
+              将用这份备份覆盖当前的「{label}」数据。恢复前会自动保存当前文件，恢复完成后页面会重新加载。
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-line bg-paper-deep/30 px-4 py-3">
+          <p className="break-all text-[11px] leading-relaxed text-ink-soft">{entry.name}</p>
+          <p className="mt-1 text-[10px] text-faint">
+            {formatBackupTime(entry.modifiedAt)} · {formatBytes(entry.bytes)}
+          </p>
+        </div>
+
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onCancel}
+            disabled={busy}
+            autoFocus
+          >
+            取消
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={busy}>
+            <RotateCcw size={14} />
+            {busy ? '恢复中…' : '确认恢复'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -360,29 +605,24 @@ function ResetAllDialog({
   )
 }
 
-function parseReaderSnapshot(
-  value: unknown,
-): { articles: ReaderArticle[]; settings: ReaderSettings } | null {
-  if (!isPlainObject(value)) return null
-  if (!Array.isArray(value.articles)) return null
-
-  const articles = sanitizeReaderArticles(value.articles)
-  // 所有文章都无法识别时，宁可拒绝导入，也不要用空阅读库覆盖现有数据。
-  if (value.articles.length > 0 && articles.length === 0) return null
-
-  return {
-    articles,
-    settings: sanitizeReaderSettings(value.settings, DEFAULT_READER_SETTINGS),
-  }
+function formatBackupTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 
 export default function Settings() {
   const settings = useAppStore((state) => state.settings)
   const setSetting = useAppStore((state) => state.setSetting)
   const snapshot = useAppStore((state) => state.snapshot)
-  const restore = useAppStore((state) => state.restore)
   const resetProgress = useAppStore((state) => state.resetProgress)
   const resetAll = useAppStore((state) => state.resetAll)
+  const readerReplaceAllProgress = useReaderProgressStore((state) => state.replaceAll)
 
   const importRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<Message | null>(null)
@@ -391,7 +631,15 @@ export default function Settings() {
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
   const [storageLoading, setStorageLoading] = useState(true)
   const [storageError, setStorageError] = useState<string | null>(null)
+  const [backupList, setBackupList] = useState<StorageBackupList | null>(null)
+  const [backupLoading, setBackupLoading] = useState(false)
+  const [backupError, setBackupError] = useState<string | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<StorageBackupEntry | null>(null)
+  const [restoreBusy, setRestoreBusy] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+  const [quarantineBusy, setQuarantineBusy] = useState<StorageKind | null>(null)
   const storageRequestId = useRef(0)
+  const backupRequestId = useRef(0)
 
   const loadStorageInfo = useCallback(async () => {
     const requestId = storageRequestId.current + 1
@@ -410,11 +658,29 @@ export default function Settings() {
     }
   }, [])
 
+  const loadBackups = useCallback(async (silent = false) => {
+    const requestId = backupRequestId.current + 1
+    backupRequestId.current = requestId
+    if (!silent) setBackupLoading(true)
+    try {
+      const list = await fetchBackupList()
+      if (requestId !== backupRequestId.current) return
+      setBackupList(list)
+      setBackupError(null)
+    } catch (error) {
+      if (requestId !== backupRequestId.current) return
+      if (!silent) setBackupError(error instanceof Error ? error.message : '读取备份列表失败。')
+    } finally {
+      if (!silent && requestId === backupRequestId.current) setBackupLoading(false)
+    }
+  }, [])
+
   const refreshStorageInfo = useCallback(() => {
     setStorageLoading(true)
     setStorageError(null)
     void loadStorageInfo()
-  }, [loadStorageInfo])
+    void loadBackups(true)
+  }, [loadBackups, loadStorageInfo])
 
   useEffect(() => {
     const requestId = storageRequestId.current + 1
@@ -434,10 +700,11 @@ export default function Settings() {
         setStorageLoading(false)
       },
     )
+    void loadBackups()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadBackups])
 
   const closeResetAll = useCallback(() => setResetAllOpen(false), [])
 
@@ -469,42 +736,158 @@ export default function Settings() {
     const input = event.currentTarget
     const file = input.files?.[0]
     if (!file) return
+    setMessage(null)
+    setImportBusy(true)
     try {
-      const data = JSON.parse(await file.text()) as unknown
-      const hasReader =
-        Boolean(data) &&
-        typeof data === 'object' &&
-        'reader' in (data as Record<string, unknown>)
-      const reader = hasReader
-        ? parseReaderSnapshot((data as { reader?: unknown }).reader)
-        : null
-      if (hasReader && !reader) {
-        setMessage({ type: 'error', text: '备份中的阅读库内容不完整。' })
+      const text = await file.text()
+      let raw: unknown
+      try {
+        raw = JSON.parse(text) as unknown
+      } catch {
+        setMessage({ type: 'error', text: '文件解析失败，请选择词间导出的 JSON 备份。' })
         return
       }
-      if (reader && !(await waitForReaderHydration())) {
+
+      const parsed = parseSnapshot(raw, {
+        settings: DEFAULT_SETTINGS,
+        currentBookId: useAppStore.getState().currentBookId,
+        readerSettings: DEFAULT_READER_SETTINGS,
+      })
+      if (!parsed.ok) {
+        setMessage({ type: 'error', text: parsed.error })
+        return
+      }
+
+      const snapshot: ParsedSnapshot = parsed.value
+      if (snapshot.reader && !(await waitForReaderHydration())) {
         setMessage({ type: 'error', text: '阅读库还在加载，请稍后再试。' })
         return
       }
-      const error = restore(data)
-      if (error) {
-        setMessage({ type: 'error', text: error })
+
+      // Ensure pending local writes are persisted before we read revisions.
+      await flushPersistedStorage()
+      const baseRevisions: Partial<Record<StorageKind, number>> = {}
+      if (storageInfo?.files.study.exists && typeof storageInfo.files.study.revision === 'number') {
+        baseRevisions.study = storageInfo.files.study.revision
+      }
+      if (storageInfo?.files.reader.exists && typeof storageInfo.files.reader.revision === 'number') {
+        baseRevisions.reader = storageInfo.files.reader.revision
+      }
+      if (
+        storageInfo?.files['reader-progress'].exists &&
+        typeof storageInfo.files['reader-progress'].revision === 'number'
+      ) {
+        baseRevisions['reader-progress'] = storageInfo.files['reader-progress'].revision
+      }
+
+      const data: Partial<Record<StorageKind, unknown>> = {
+        study: buildStudyPayload(snapshot.study),
+      }
+      if (snapshot.reader) {
+        data.reader = buildReaderPayload(snapshot.reader)
+        data['reader-progress'] = buildReaderProgressPayload(snapshot.reader)
+      }
+
+      let result
+      try {
+        result = await importStorageData({ baseRevisions, data })
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('另一个页面更新')) {
+          await loadStorageInfo()
+          setMessage({ type: 'error', text: '数据已被另一个页面更新，请刷新页面后重新导入。' })
+          return
+        }
+        setMessage({ type: 'error', text: error instanceof Error ? error.message : '导入失败。' })
         return
       }
-      if (reader) {
-        useReaderStore.setState({ articles: reader.articles, settings: reader.settings })
-        useReaderProgressStore.getState().replaceAll(reader.articles)
+
+      // Apply to the in-memory stores first. replacePersistedKind() then cancels
+      // the debounced writes those setState calls armed and points the browser
+      // cache/revision at exactly what the server just committed.
+      useAppStore.setState({
+        settings: snapshot.study.settings,
+        currentBookId: snapshot.study.currentBookId,
+        progress: snapshot.study.progress,
+        days: snapshot.study.days,
+        personalWords: snapshot.study.personalWords,
+      })
+      await replacePersistedKind('study', data.study, result.revisions.study ?? 1)
+
+      if (snapshot.reader) {
+        useReaderStore.setState({
+          articles: snapshot.reader.articles,
+          settings: snapshot.reader.settings,
+        })
+        readerReplaceAllProgress(snapshot.reader.articles)
+        await replacePersistedKind('reader', data.reader, result.revisions.reader ?? 1)
+        await replacePersistedKind(
+          'reader-progress',
+          data['reader-progress'],
+          result.revisions['reader-progress'] ?? 1,
+        )
       }
+
       setMessage({
         type: 'ok',
-        text: reader ? '备份已恢复，学习记录和阅读库已更新。' : '备份已恢复，学习记录已更新。',
+        text: result.quarantined.length > 0
+          ? `备份已导入，已自动隔离 ${result.quarantined.length} 个损坏文件，页面即将刷新。`
+          : snapshot.reader
+            ? '备份已导入，学习记录和阅读库已更新，页面即将刷新。'
+            : '备份已导入，学习记录已更新，页面即将刷新。',
       })
+      window.setTimeout(() => window.location.reload(), 800)
     } catch {
-      setMessage({ type: 'error', text: '文件解析失败，请选择词间导出的 JSON 备份。' })
+      setMessage({ type: 'error', text: '导入过程中发生意外错误。' })
     } finally {
       input.value = ''
+      setImportBusy(false)
     }
   }
+
+  const handleQuarantine = useCallback(
+    async (kind: StorageKind) => {
+      setMessage(null)
+      setQuarantineBusy(kind)
+      try {
+        await quarantineKind(kind)
+        setMessage({ type: 'ok', text: `${kind}.json 已隔离，页面即将刷新。` })
+        window.setTimeout(() => window.location.reload(), 600)
+      } catch (error) {
+        setMessage({ type: 'error', text: error instanceof Error ? error.message : '隔离失败。' })
+      } finally {
+        setQuarantineBusy(null)
+      }
+    },
+    [],
+  )
+
+  const handleRestoreBackup = useCallback(
+    async (entry: StorageBackupEntry) => {
+      setMessage(null)
+      setRestoreBusy(true)
+      try {
+        await flushPersistedStorage()
+        await discardPersistedKind(entry.kind)
+        const result = await restoreBackup(entry.kind, entry.name)
+        setRestoreTarget(null)
+        setMessage({
+          type: 'ok',
+          text:
+            result.safetyBackup
+              ? `已从 ${entry.name} 恢复，当前文件已备份为 ${result.safetyBackup}，页面即将刷新。`
+              : `已从 ${entry.name} 恢复，页面即将刷新。`,
+        })
+        await loadBackups(true)
+        await loadStorageInfo()
+        window.setTimeout(() => window.location.reload(), 800)
+      } catch (error) {
+        setMessage({ type: 'error', text: error instanceof Error ? error.message : '恢复备份失败。' })
+      } finally {
+        setRestoreBusy(false)
+      }
+    },
+    [loadBackups, loadStorageInfo],
+  )
 
   const handleResetProgress = () => {
     if (confirm !== 'progress') {
@@ -700,9 +1083,14 @@ export default function Settings() {
               <Download size={15} />
               导出备份
             </button>
-            <button type="button" className="btn btn-secondary" onClick={() => importRef.current?.click()}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => importRef.current?.click()}
+              disabled={importBusy}
+            >
               <Upload size={15} />
-              导入备份
+              {importBusy ? '导入中…' : '导入备份'}
             </button>
             <input
               ref={importRef}
@@ -718,6 +1106,18 @@ export default function Settings() {
             loading={storageLoading}
             error={storageError}
             onRefresh={refreshStorageInfo}
+            onQuarantine={handleQuarantine}
+            quarantineBusy={quarantineBusy}
+          />
+          <BackupManager
+            list={backupList}
+            loading={backupLoading}
+            error={backupError}
+            onRefresh={() => {
+              setBackupError(null)
+              void loadBackups()
+            }}
+            onRestore={(entry) => setRestoreTarget(entry)}
           />
 
           <div className="mt-6 space-y-3 border-t border-line pt-5">
@@ -761,6 +1161,16 @@ export default function Settings() {
           info={storageInfo}
           onCancel={closeResetAll}
           onConfirm={handleResetAll}
+        />
+      )}
+      {restoreTarget && (
+        <RestoreBackupDialog
+          entry={restoreTarget}
+          busy={restoreBusy}
+          onCancel={() => {
+            if (!restoreBusy) setRestoreTarget(null)
+          }}
+          onConfirm={() => void handleRestoreBackup(restoreTarget)}
         />
       )}
 

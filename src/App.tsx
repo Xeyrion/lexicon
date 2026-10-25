@@ -60,12 +60,14 @@ function BootSplash() {
 }
 
 export default function App() {
-  const hydrated = useHydrated()
+  const hydration = useHydrated()
 
   return (
     <>
       <ThemeSync />
-      {hydrated ? (
+      {hydration === 'loading' ? (
+        <BootSplash />
+      ) : (
         <HashRouter>
           <ScrollToTop />
           <Routes>
@@ -82,8 +84,6 @@ export default function App() {
             </Route>
           </Routes>
         </HashRouter>
-      ) : (
-        <BootSplash />
       )}
     </>
   )

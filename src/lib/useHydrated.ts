@@ -1,7 +1,15 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useAppStore } from '../store/appStore'
+import { setHydrationWriteBlocked } from './storage'
 
-export function useHydrated(): boolean {
+export type HydrationState = 'loading' | 'ready' | 'slow'
+
+/**
+ * `slow` means: keep showing the app (don't trap the user on the splash) but
+ * stop writing. Writes stay blocked until a reload actually finishes loading,
+ * because the in-memory state may still be empty.
+ */
+export function useHydrated(): HydrationState {
   const hydrated = useSyncExternalStore(
     (onChange) => useAppStore.persist.onFinishHydration(onChange),
     () => useAppStore.persist.hasHydrated(),
@@ -10,15 +18,20 @@ export function useHydrated(): boolean {
   const [timedOut, setTimedOut] = useState(false)
 
   useEffect(() => {
-    if (hydrated) return
+    if (hydrated) {
+      setHydrationWriteBlocked('study', false)
+      return
+    }
     const timeout = window.setTimeout(() => {
       console.warn(
-        '[Lexicon] 学习数据加载超过 2.5 秒，暂时以当前内容继续。请刷新页面确认数据已完整加载。',
+        '[Lexicon] 学习数据加载超过 2.5 秒，已暂停保存以免覆盖未读取的文件。请重新加载页面。',
       )
+      setHydrationWriteBlocked('study', true)
       setTimedOut(true)
     }, 2500)
     return () => window.clearTimeout(timeout)
   }, [hydrated])
 
-  return hydrated || timedOut
+  if (hydrated) return 'ready'
+  return timedOut ? 'slow' : 'loading'
 }

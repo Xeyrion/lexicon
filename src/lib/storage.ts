@@ -7,7 +7,9 @@ const PENDING_PREFIX = 'lexicon:pending:'
 const DELETED_PREFIX = 'lexicon:deleted:'
 const REVISION_PREFIX = 'lexicon:revision:'
 
-type Kind = 'study' | 'reader' | 'reader-progress'
+export type PersistedKind = 'study' | 'reader' | 'reader-progress'
+
+type Kind = PersistedKind
 
 const CACHE_KEYS: Record<Kind, { current: string; legacy?: string }> = {
   study: { current: 'lexicon-study-v1', legacy: 'learnword-state-v1' },
@@ -45,10 +47,17 @@ export type FileStorageStatus = 'unknown' | 'online' | 'offline' | 'error'
 
 const controllers = new Set<Controller>()
 const statusListeners = new Set<() => void>()
+const cacheListeners = new Set<() => void>()
+const hydrationListeners = new Set<() => void>()
 const kindStatuses = new Map<Kind, { status: FileStorageStatus; error: string }>()
 let listenersInstalled = false
 let warnedOffline = false
-let writerEnabled = true
+// Two independent reasons to stop writing: the tab lock says this tab is not
+// the writer, or hydration timed out and we must not overwrite an unread file.
+let tabWriterEnabled = true
+const hydrationBlocks = new Set<'study' | 'reader'>()
+let hydrationWriteBlocked = false
+let cacheWriteFailed = false
 let fileStorageStatus: FileStorageStatus = 'unknown'
 let fileStorageError = ''
 
@@ -98,8 +107,53 @@ export function subscribeFileStorageStatus(listener: () => void): () => void {
 }
 
 export function setStorageWriterEnabled(enabled: boolean): void {
-  writerEnabled = enabled
-  if (enabled) return
+  tabWriterEnabled = enabled
+  applyWriterState()
+}
+
+/**
+ * Hydration timed out: the UI is showing whatever was already in memory, which
+ * may be empty. Blocking writes here is what stops an empty snapshot from
+ * replacing a file we never managed to read. Keyed so the study and reader
+ * gates cannot unblock each other.
+ */
+export function setHydrationWriteBlocked(
+  reason: 'study' | 'reader',
+  blocked: boolean,
+): void {
+  if (blocked) hydrationBlocks.add(reason)
+  else hydrationBlocks.delete(reason)
+  const next = hydrationBlocks.size > 0
+  if (next === hydrationWriteBlocked) return
+  hydrationWriteBlocked = next
+  applyWriterState()
+  hydrationListeners.forEach((listener) => listener())
+}
+
+export function getHydrationWriteBlocked(): boolean {
+  return hydrationWriteBlocked
+}
+
+export function subscribeHydrationWriteBlocked(listener: () => void): () => void {
+  hydrationListeners.add(listener)
+  return () => hydrationListeners.delete(listener)
+}
+
+export function getCacheWriteFailed(): boolean {
+  return cacheWriteFailed
+}
+
+export function subscribeCacheWriteFailed(listener: () => void): () => void {
+  cacheListeners.add(listener)
+  return () => cacheListeners.delete(listener)
+}
+
+function writesBlocked(): boolean {
+  return !tabWriterEnabled || hydrationWriteBlocked
+}
+
+function applyWriterState(): void {
+  if (!writesBlocked()) return
   controllers.forEach((controller) => {
     if (controller.timer !== null) {
       window.clearTimeout(controller.timer)
@@ -133,12 +187,15 @@ function readLocal(key: string): string | null {
   }
 }
 
-function writeLocal(key: string, value: string): void {
-  if (typeof window === 'undefined') return
+function writeLocal(key: string, value: string): boolean {
+  if (typeof window === 'undefined') return false
   try {
     window.localStorage.setItem(key, value)
+    return true
   } catch {
-    // Storage can be unavailable or full.
+    // Storage can be unavailable or full. The caller decides whether the user
+    // needs to hear about it; flag writes can fail quietly.
+    return false
   }
 }
 
@@ -222,16 +279,42 @@ async function readCache(controller: Controller): Promise<string | null> {
   )
 }
 
-async function writeCache(controller: Controller, value: string): Promise<void> {
+type CacheWriteResult = 'idb' | 'local' | 'failed'
+
+/**
+ * Writes the snapshot to the browser cache. When both IndexedDB and
+ * localStorage reject it the data only lives in memory — but that is only worth
+ * telling the user about if the file write failed too, so this function reports
+ * nothing by itself.
+ */
+async function writeCache(
+  controller: Controller,
+  value: string,
+): Promise<CacheWriteResult> {
   if (!controller.idbBroken) {
     try {
       await withTimeout(set(controller.cacheKey, value), 1000)
-      return
+      return 'idb'
     } catch {
       controller.idbBroken = true
     }
   }
-  writeLocal(controller.cacheKey, value)
+  return writeLocal(controller.cacheKey, value) ? 'local' : 'failed'
+}
+
+/**
+ * `failed` is true only when the snapshot exists nowhere but memory: the file
+ * write failed and the cache rejected it as well. Anything else clears it.
+ */
+function reportCacheFailure(failed: boolean): void {
+  if (failed === cacheWriteFailed) return
+  cacheWriteFailed = failed
+  if (failed) {
+    console.warn(
+      '[Lexicon] 文件与浏览器缓存都没写成功，当前更改只保存在内存中，请立即导出备份。',
+    )
+  }
+  cacheListeners.forEach((listener) => listener())
 }
 
 async function clearCache(keys: { current: string; legacy?: string }): Promise<void> {
@@ -490,22 +573,32 @@ async function flush(controller: Controller): Promise<void> {
     controller.timer = null
   }
   if (controller.conflict) return
+  // Keep flushing while the tab lock has paused us (yieldToOtherTab relies on
+  // this to persist before handing the lock over), but never while hydration is
+  // unresolved: the snapshot in memory may still be empty.
+  if (hydrationWriteBlocked) return
 
   // Keep the pending value until the file write has actually succeeded. A new
   // value may arrive while we await IndexedDB/fetch, so compare after writing.
   const value = controller.pending
   if (value == null) return
 
-  await writeCache(controller, value)
+  const cached = await writeCache(controller, value)
   const written = await writeFile(controller, value)
 
   if (controller.conflict) return
 
   if (!written) {
+    // The file write failed. If the cache took the snapshot, it can still be
+    // replayed on the next start; if it did not, the change only exists in
+    // memory and the user has to export it now.
+    reportCacheFailure(cached === 'failed')
     // Leave pending and the dirty flag untouched: the next change or
     // pagehide/visibility flush can retry with the latest value.
     return
   }
+
+  reportCacheFailure(false)
 
   if (controller.pending === value) {
     controller.pending = null
@@ -519,7 +612,7 @@ async function flush(controller: Controller): Promise<void> {
 }
 
 function schedule(controller: Controller, value: string): void {
-  if (!writerEnabled || controller.conflict) return
+  if (writesBlocked() || controller.conflict) return
   controller.pending = value
   // Mark dirty synchronously so a crash during the debounce window is
   // recoverable from the browser cache on next startup.
@@ -605,4 +698,61 @@ export function flushPersistedStorage(): Promise<void> {
     return controller.chain
   })
   return Promise.all(tasks).then(() => undefined)
+}
+
+function clearControllerTimers(controller: Controller): void {
+  if (controller.timer !== null) {
+    window.clearTimeout(controller.timer)
+    controller.timer = null
+  }
+  controller.pending = null
+  controller.chain = Promise.resolve()
+}
+
+/**
+ * After a server-side import/restore, make the browser cache and revision
+ * bookkeeping match the new file. Without this, the next reload could replay
+ * stale pending data over the freshly imported result.
+ */
+export async function replacePersistedKind(
+  kind: Kind,
+  data: unknown,
+  revision: number,
+): Promise<void> {
+  const serialized = JSON.stringify(data)
+  const matches = [...controllers].filter((controller) => controller.kind === kind)
+
+  if (matches.length === 0) {
+    try {
+      await withTimeout(set(CACHE_KEYS[kind].current, serialized), 1000)
+    } catch {
+      writeLocal(CACHE_KEYS[kind].current, serialized)
+    }
+  }
+
+  for (const controller of matches) {
+    clearControllerTimers(controller)
+    controller.conflict = false
+    controller.revision = revision
+    storeRevision(kind, revision)
+    setPending(kind, false)
+    setDeleted(kind, false)
+    await writeCache(controller, serialized)
+  }
+}
+
+/**
+ * Drop the local cache for a kind before restoring a backup. This prevents a
+ * dirty debounce/pending snapshot from overwriting the restored file on reload.
+ */
+export async function discardPersistedKind(kind: Kind): Promise<void> {
+  for (const controller of controllers) {
+    if (controller.kind !== kind) continue
+    clearControllerTimers(controller)
+    controller.conflict = false
+  }
+  setPending(kind, false)
+  setDeleted(kind, false)
+  clearStoredRevision(kind)
+  await clearCache(CACHE_KEYS[kind])
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useReaderProgressStore } from '../store/readerProgressStore'
 import { useReaderStore } from '../store/readerStore'
+import { setHydrationWriteBlocked } from './storage'
 
 interface PersistLike {
   persist: {
@@ -42,11 +43,15 @@ export function useReaderHydrated(): boolean {
   const hydrated = readerHydrated && progressHydrated
 
   useEffect(() => {
-    if (hydrated) return
+    if (hydrated) {
+      setHydrationWriteBlocked('reader', false)
+      return
+    }
     const timeout = window.setTimeout(() => {
       console.warn(
-        '[Lexicon] 阅读数据加载超过 2.5 秒，暂时以当前内容继续。请刷新页面确认数据已完整加载。',
+        '[Lexicon] 阅读数据加载超过 2.5 秒，已暂停保存以免覆盖未读取的文件。请重新加载页面。',
       )
+      setHydrationWriteBlocked('reader', true)
       setTimedOut(true)
     }, 2500)
     return () => window.clearTimeout(timeout)
