@@ -214,6 +214,23 @@ export async function fetchBackupList(): Promise<StorageBackupList> {
   return payload
 }
 
+/** Persists the import cap; the server clamps it and returns what it stored. */
+export async function saveImportLimit(maxImportBytes: number): Promise<number> {
+  const payload = await requestJson(
+    '/config',
+    {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxImportBytes }),
+    },
+    MUTATION_TIMEOUT_MS,
+  )
+  if (!isRecord(payload) || !isFiniteNumber(payload.maxImportBytes)) {
+    throw new Error('保存导入上限失败：本地存储服务返回格式不正确。')
+  }
+  return payload.maxImportBytes
+}
+
 export async function quarantineKind(kind: StorageKind): Promise<string> {
   const payload = await requestJson(
     `/${kind}/quarantine`,

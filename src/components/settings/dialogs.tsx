@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { RotateCcw, Trash2 } from 'lucide-react'
+import { RotateCcw, Trash2, Upload } from 'lucide-react'
 import type { StorageBackupEntry, StorageInfo } from '../../lib/storageInfo'
 import { formatBackupTime, formatBytes } from './format'
 import { STORAGE_FILES } from './constants'
@@ -239,6 +239,92 @@ export function ResetProgressDialog({
           <button type="button" className="btn btn-danger" onClick={onConfirm}>
             <RotateCcw size={14} />
             确认清空
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+const MB = 1024 * 1024
+
+export function ImportLimitDialog({
+  from,
+  to,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  from: number
+  to: number
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const fromMb = Math.round(from / MB)
+  const toMb = Math.round(to / MB)
+  const raising = toMb > fromMb
+
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = originalOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [onCancel])
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/35 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-limit-title"
+        aria-describedby="import-limit-description"
+        className="w-full max-w-md rounded-[1.75rem] border border-line bg-surface p-6 shadow-[var(--shadow-float)] sm:p-7"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-wash text-accent">
+            <Upload size={16} strokeWidth={1.8} />
+          </span>
+          <div>
+            <h2 id="import-limit-title" className="display text-xl text-ink">
+              调整导入上限？
+            </h2>
+            <p id="import-limit-description" className="mt-1 text-xs leading-relaxed text-muted">
+              从 {fromMb} MB 改为 {toMb} MB，只影响导入备份时能接受的文件体积。
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-line bg-paper-deep/30 px-4 py-3">
+          <p className="text-[11px] leading-relaxed text-ink-soft">
+            {raising
+              ? '导入时会先把整份文件读进浏览器内存再解析。调大之后，超大文件可能让页面卡顿甚至无响应，建议只在备份确实超过当前上限时才调大。'
+              : '调小之后，体积超过这个值的备份文件将无法导入。已有的数据、自动备份和已保存的进度都不受影响。'}
+          </p>
+        </div>
+
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className="btn btn-secondary" onClick={onCancel} autoFocus>
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? '保存中…' : '确认调整'}
           </button>
         </div>
       </div>

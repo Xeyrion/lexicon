@@ -17,6 +17,7 @@ import {
   importStorageData,
   quarantineKind,
   restoreBackup,
+  saveImportLimit,
   type StorageBackupEntry,
   type StorageBackupList,
   type StorageInfo,
@@ -58,6 +59,8 @@ export function useStorageData() {
   const [restoreBusy, setRestoreBusy] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
   const [quarantineBusy, setQuarantineBusy] = useState<StorageKind | null>(null)
+  const [pendingLimit, setPendingLimit] = useState<number | null>(null)
+  const [limitBusy, setLimitBusy] = useState(false)
   const storageRequestId = useRef(0)
   const backupRequestId = useRef(0)
 
@@ -352,6 +355,40 @@ export function useStorageData() {
     void restoreBackupEntry(restoreTarget)
   }, [restoreBackupEntry, restoreBusy, restoreTarget])
 
+  const requestLimitChange = useCallback(
+    (bytes: number) => {
+      if (bytes === storageInfo?.maxImportBytes) return
+      setPendingLimit(bytes)
+    },
+    [storageInfo?.maxImportBytes],
+  )
+
+  const cancelLimitChange = useCallback(() => {
+    if (limitBusy) return
+    setPendingLimit(null)
+  }, [limitBusy])
+
+  const confirmLimitChange = useCallback(async () => {
+    if (pendingLimit === null || limitBusy) return
+    setLimitBusy(true)
+    try {
+      const saved = await saveImportLimit(pendingLimit)
+      setStorageInfo((info) => (info ? { ...info, maxImportBytes: saved } : info))
+      setMessage({
+        type: 'ok',
+        text: `单次导入上限已调整为 ${Math.round(saved / (1024 * 1024))} MB。`,
+      })
+      setPendingLimit(null)
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : '保存导入上限失败。',
+      })
+    } finally {
+      setLimitBusy(false)
+    }
+  }, [limitBusy, pendingLimit])
+
   return {
     message,
     setMessage,
@@ -373,5 +410,10 @@ export function useStorageData() {
     requestRestore,
     cancelRestore,
     confirmRestore,
+    pendingLimit,
+    limitBusy,
+    requestLimitChange,
+    cancelLimitChange,
+    confirmLimitChange,
   }
 }

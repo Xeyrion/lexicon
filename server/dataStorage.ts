@@ -11,23 +11,19 @@ const KEEP_BACKUPS = 30
 const DEFAULT_MAX_IMPORT_MB = 64
 const MIN_MAX_IMPORT_MB = 8
 const MAX_MAX_IMPORT_MB = 512
+const MB = 1024 * 1024
 
-/**
- * Cap for one import request body, also used by the client to reject a file
- * before reading it into memory. Overridable with LEXICON_MAX_IMPORT_MB and
- * clamped: too small breaks normal backups, too large lets a browser tab try to
- * parse something it cannot hold.
- */
-function resolveMaxImportBytes(): number {
-  const raw = process.env.LEXICON_MAX_IMPORT_MB?.trim()
-  const parsed = raw ? Number(raw) : Number.NaN
-  const mb = Number.isFinite(parsed)
-    ? Math.min(MAX_MAX_IMPORT_MB, Math.max(MIN_MAX_IMPORT_MB, Math.round(parsed)))
-    : DEFAULT_MAX_IMPORT_MB
-  return mb * 1024 * 1024
+function clampImportBytes(bytes: number): number {
+  const mb = Math.round(bytes / MB)
+  return Math.min(MAX_MAX_IMPORT_MB, Math.max(MIN_MAX_IMPORT_MB, mb)) * MB
 }
 
-const MAX_BODY_BYTES = resolveMaxImportBytes()
+function envMaxImportBytes(): number {
+  const raw = process.env.LEXICON_MAX_IMPORT_MB?.trim()
+  const parsed = raw ? Number(raw) : Number.NaN
+  return Number.isFinite(parsed) ? clampImportBytes(parsed * MB) : DEFAULT_MAX_IMPORT_MB * MB
+}
+
 
 type Kind = (typeof KINDS)[number]
 
@@ -89,6 +85,42 @@ function resolveDataDir(): string {
 
 const DATA_DIR = resolveDataDir()
 const BACKUP_DIR = path.join(DATA_DIR, 'backups')
+
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
+
+/**
+ * The import cap lives in <data dir>/config.json so the settings page can change
+ * it. Precedence: the saved value wins over LEXICON_MAX_IMPORT_MB, which only
+ * supplies the default when nothing has been saved yet.
+ */
+let savedMaxImportBytes: number | null | undefined
+
+async function currentMaxImportBytes(): Promise<number> {
+  if (savedMaxImportBytes === undefined) {
+    try {
+      const raw = await readFile(CONFIG_FILE, 'utf8')
+      const parsed = JSON.parse(raw) as unknown
+      savedMaxImportBytes =
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        typeof (parsed as { maxImportBytes?: unknown }).maxImportBytes === 'number'
+          ? clampImportBytes((parsed as { maxImportBytes: number }).maxImportBytes)
+          : null
+    } catch {
+      // Missing or unreadable config is not an error: fall back to the default.
+      savedMaxImportBytes = null
+    }
+  }
+  return savedMaxImportBytes ?? envMaxImportBytes()
+}
+
+async function saveMaxImportBytes(bytes: number): Promise<number> {
+  const value = clampImportBytes(bytes)
+  await mkdir(DATA_DIR, { recursive: true })
+  await writeFile(CONFIG_FILE, `${JSON.stringify({ maxImportBytes: value })}\n`, 'utf8')
+  savedMaxImportBytes = value
+  return value
+}
 let writeQueue: Promise<unknown> = Promise.resolve()
 
 function isKind(value: string): value is Kind {
@@ -397,12 +429,13 @@ function isLocalOrigin(request: IncomingMessage): boolean {
 }
 
 async function readBody(request: IncomingMessage): Promise<string> {
+  const limit = await currentMaxImportBytes()
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
     size += buffer.length
-    if (size > MAX_BODY_BYTES) throw httpError(413, '数据文件太大。')
+    if (size > limit) throw httpError(413, '数据文件太大。')
     chunks.push(buffer)
   }
   return Buffer.concat(chunks).toString('utf8')
@@ -456,7 +489,7 @@ async function statusPayload(): Promise<{
     keepBackups: KEEP_BACKUPS,
     // Lets the client reject an oversized backup before it reads the whole file
     // into memory, using the same number the request body cap enforces.
-    maxImportBytes: MAX_BODY_BYTES,
+    maxImportBytes: await currentMaxImportBytes(),
     files,
     backups: await readBackupInfo(),
   }
@@ -685,6 +718,25 @@ async function handleRequest(
       return
     }
     sendJson(response, 200, await statusPayload())
+    return
+  }
+
+  if (parts[2] === 'config') {
+    if (parts.length !== 3) {
+      sendJson(response, 404, { error: '配置接口不存在。' })
+      return
+    }
+    if (request.method !== 'PUT') {
+      sendJson(response, 405, { error: '不支持该请求方法。' })
+      return
+    }
+    const raw = await readJsonBody(request)
+    const value = raw.maxImportBytes
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw httpError(400, '请求缺少 maxImportBytes。')
+    }
+    const saved = await withLock(null, () => saveMaxImportBytes(value))
+    sendJson(response, 200, { maxImportBytes: saved })
     return
   }
 

@@ -18,6 +18,7 @@ import { PageHeader } from '../components/PageHeader'
 import { BackupPanel } from '../components/settings/BackupPanel'
 import { LocalDataPanel } from '../components/settings/LocalDataPanel'
 import {
+  ImportLimitDialog,
   ResetAllDialog,
   ResetProgressDialog,
   RestoreBackupDialog,
@@ -65,6 +66,11 @@ export default function Settings() {
     requestRestore,
     cancelRestore,
     confirmRestore,
+    pendingLimit,
+    limitBusy,
+    requestLimitChange,
+    cancelLimitChange,
+    confirmLimitChange,
   } = useStorageData()
 
   const importRef = useRef<HTMLInputElement>(null)
@@ -286,6 +292,8 @@ export default function Settings() {
             onRefresh={refreshStorageInfo}
             onQuarantine={handleQuarantine}
             quarantineBusy={quarantineBusy}
+            onChangeLimit={requestLimitChange}
+            limitBusy={limitBusy}
           />
           <BackupPanel
             list={backupList}
@@ -341,6 +349,15 @@ export default function Settings() {
         <ResetProgressDialog
           onCancel={() => setResetProgressOpen(false)}
           onConfirm={handleResetProgress}
+        />
+      )}
+      {pendingLimit !== null && (
+        <ImportLimitDialog
+          from={storageInfo?.maxImportBytes ?? pendingLimit}
+          to={pendingLimit}
+          busy={limitBusy}
+          onCancel={cancelLimitChange}
+          onConfirm={() => void confirmLimitChange()}
         />
       )}
       {restoreTarget && (

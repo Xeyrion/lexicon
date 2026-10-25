@@ -4,6 +4,9 @@ import { formatBytes } from './format'
 import { STORAGE_FILES } from './constants'
 
 
+const LIMIT_PRESETS_MB = [16, 32, 64, 128, 256, 512]
+const MB = 1024 * 1024
+
 export function LocalDataPanel({
   info,
   loading,
@@ -11,6 +14,8 @@ export function LocalDataPanel({
   onRefresh,
   onQuarantine,
   quarantineBusy,
+  onChangeLimit,
+  limitBusy,
 }: {
   info: StorageInfo | null
   loading: boolean
@@ -18,6 +23,8 @@ export function LocalDataPanel({
   onRefresh: () => void
   onQuarantine: (kind: StorageKind) => void
   quarantineBusy: StorageKind | null
+  onChangeLimit: (bytes: number) => void
+  limitBusy: boolean
 }) {
   const corrupted = info
     ? STORAGE_FILES.filter(({ kind }) => info.files[kind].corrupted)
@@ -153,16 +160,38 @@ export function LocalDataPanel({
           </p>
 
           {typeof info.maxImportBytes === 'number' && (
-            <p className="text-[10px] leading-relaxed text-faint">
-              单次导入上限 {formatBytes(info.maxImportBytes)}，由本地服务决定；需要调整时设置环境变量{' '}
-              <code className="rounded bg-sunken px-1 py-0.5 text-[10px] text-ink-soft">
-                LEXICON_MAX_IMPORT_MB
-              </code>{' '}
-              后重启应用。
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line/70 pt-3">
+              <div className="min-w-0">
+                <p className="text-[11px] text-ink-soft">单次导入上限</p>
+                <p className="mt-0.5 text-[10px] leading-relaxed text-faint">
+                  超过这个体积的备份会被拒绝。调大后导入会占用更多内存。
+                </p>
+              </div>
+              <select
+                className="input w-auto shrink-0 py-1.5 text-[11px]"
+                value={info.maxImportBytes}
+                disabled={limitBusy}
+                aria-label="单次导入上限"
+                onChange={(event) => onChangeLimit(Number(event.currentTarget.value))}
+              >
+                {limitOptions(info.maxImportBytes).map((mb) => (
+                  <option key={mb} value={mb * MB}>
+                    {mb} MB
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
         </div>
       )}
     </div>
   )
+}
+
+/** Presets plus whatever the server actually reports (env var, saved value). */
+function limitOptions(current: number): number[] {
+  const currentMb = Math.round(current / MB)
+  const options = new Set(LIMIT_PRESETS_MB)
+  options.add(currentMb)
+  return [...options].sort((a, b) => a - b)
 }
