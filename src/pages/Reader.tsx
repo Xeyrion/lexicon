@@ -8,7 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from 'react'
-import { ArrowLeft, BookOpenText, Languages, Minus, MousePointer2, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpenText, Languages, Minus, MousePointer2, Pencil, Plus } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { HoverPreview } from '../components/reader/HoverPreview'
@@ -18,6 +18,7 @@ import { SelectionAction } from '../components/reader/SelectionAction'
 import { WordPanel } from '../components/reader/WordPanel'
 import type { ReaderLookup, ReaderRect } from '../components/reader/types'
 import { useReaderDictionary } from '../hooks/useReaderDictionary'
+import { findChapter, useLibraryStore } from '../store/libraryStore'
 import { formatShortDate } from '../lib/date'
 import { isPhraseSelection, readingMinutes } from '../lib/reader'
 import { useReaderHydrated } from '../lib/useReaderHydrated'
@@ -225,7 +226,24 @@ function ReaderHint({
   )
 }
 
-function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart: boolean }) {
+interface ChapterNav {
+  bookId: string
+  bookTitle: string
+  index: number
+  total: number
+  prevId?: string
+  nextId?: string
+}
+
+function ReaderView({
+  article,
+  fromStart,
+  nav,
+}: {
+  article: ReaderArticle
+  fromStart: boolean
+  nav?: ChapterNav
+}) {
   const fontSize = useReaderStore((state) => state.settings.fontSize)
   const setFontSize = useReaderStore((state) => state.setFontSize)
   const setArticleProgress = useReaderProgressStore((state) => state.setProgress)
@@ -564,19 +582,29 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
     <div>
       <div className="sticky top-0 z-20 -mx-4 border-b border-line/70 bg-paper/85 backdrop-blur-xl sm:-mx-6 lg:-mx-10">
         <div className="flex items-center gap-3 px-4 py-3 sm:px-6 lg:px-10">
-          <Link to="/read" className="icon-button -ml-1 shrink-0" aria-label="回到阅读库">
+          <Link
+            to={nav ? `/library/${nav.bookId}` : '/read'}
+            className="icon-button -ml-1 shrink-0"
+            aria-label={nav ? '回到目录' : '回到阅读库'}
+          >
             <ArrowLeft size={18} strokeWidth={1.8} />
           </Link>
           <div className="min-w-0 flex-1">
-            <p className="kicker">Reading</p>
-            <p className="truncate text-xs text-muted">{article.title}</p>
+            <p className="kicker">{nav ? nav.bookTitle : 'Reading'}</p>
+            <p className="truncate text-xs text-muted">
+              {nav ? `${nav.index + 1}/${nav.total} · ${article.title}` : article.title}
+            </p>
           </div>
           <ReaderProgress store={progressStore} variant="inline" />
           <Link
-            to={`/read/${article.id}/edit`}
+            to={
+              nav
+                ? `/library/${nav.bookId}/chapters/${article.id}/edit`
+                : `/read/${article.id}/edit`
+            }
             className="icon-button h-8 w-8 shrink-0"
-            aria-label="编辑文章"
-            title="编辑文章"
+            aria-label={nav ? '编辑本章' : '编辑文章'}
+            title={nav ? '编辑本章' : '编辑文章'}
           >
             <Pencil size={15} strokeWidth={1.8} />
           </Link>
@@ -677,9 +705,30 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
               />
             </div>
 
-            <footer className="mt-12 flex items-center gap-3 border-t border-line pt-5 text-[10px] text-faint">
-              <span className="h-px w-8 bg-accent" />
-              读到这里
+            <footer className="mt-12 border-t border-line pt-5">
+              <div className="flex items-center gap-3 text-[10px] text-faint">
+                <span className="h-px w-8 bg-accent" />
+                读到这里
+              </div>
+              {nav && (
+                <div className="mt-5 flex flex-wrap items-center gap-2">
+                  {nav.prevId ? (
+                    <Link to={`/read/${nav.prevId}`} className="btn btn-secondary">
+                      <ArrowLeft size={14} strokeWidth={1.8} />
+                      上一章
+                    </Link>
+                  ) : null}
+                  <Link to={`/library/${nav.bookId}`} className="btn btn-ghost">
+                    目录
+                  </Link>
+                  {nav.nextId ? (
+                    <Link to={`/read/${nav.nextId}`} className="btn btn-primary">
+                      下一章
+                      <ArrowRight size={14} strokeWidth={1.8} />
+                    </Link>
+                  ) : null}
+                </div>
+              )}
             </footer>
           </div>
         </article>
@@ -760,15 +809,19 @@ export default function Reader() {
   const fromStart = searchParams.get('from') === 'start'
   const hydrated = useReaderHydrated()
   const articles = useReaderStore((state) => state.articles)
+  const books = useLibraryStore((state) => state.books)
+
   const article = articles.find((item) => item.id === articleId)
+  // One route serves both: ids are uuids, and articles are checked first.
+  const located = article ? null : findChapter(books, articleId ?? '')
 
   if (!hydrated) return <ReaderSkeleton />
 
-  if (!article) {
+  if (!article && !located) {
     return (
       <EmptyState
         icon={BookOpenText}
-        title="文章没有找到"
+        title="内容没有找到"
         description="它可能已经被删除，或者链接不完整。"
         action={
           <Link to="/read" className="btn btn-primary">
@@ -779,11 +832,34 @@ export default function Reader() {
     )
   }
 
+  const document: ReaderArticle = article ?? {
+    id: located!.chapter.id,
+    title: located!.chapter.title,
+    source: located!.book.title,
+    text: located!.chapter.text,
+    createdAt: located!.chapter.createdAt,
+    updatedAt: located!.chapter.updatedAt,
+    progress: 0,
+    wordCount: located!.chapter.wordCount,
+  }
+
+  const nav: ChapterNav | undefined = located
+    ? {
+        bookId: located.book.id,
+        bookTitle: located.book.title,
+        index: located.index,
+        total: located.book.chapters.length,
+        prevId: located.book.chapters[located.index - 1]?.id,
+        nextId: located.book.chapters[located.index + 1]?.id,
+      }
+    : undefined
+
   return (
     <ReaderView
-      key={`${article.id}:${fromStart ? 'start' : 'resume'}`}
-      article={article}
+      key={`${document.id}:${fromStart ? 'start' : 'resume'}`}
+      article={document}
       fromStart={fromStart}
+      nav={nav}
     />
   )
 }

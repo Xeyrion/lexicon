@@ -7,6 +7,10 @@ import { useAppStore } from './store/appStore'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Study = lazy(() => import('./pages/Study'))
 const Reading = lazy(() => import('./pages/Reading'))
+const Library = lazy(() => import('./pages/Library'))
+const ImportBook = lazy(() => import('./pages/ImportBook'))
+const BookDetail = lazy(() => import('./pages/BookDetail'))
+const EditChapter = lazy(() => import('./pages/EditChapter'))
 const EditArticle = lazy(() => import('./pages/EditArticle'))
 const Reader = lazy(() => import('./pages/Reader'))
 const Books = lazy(() => import('./pages/Books'))
@@ -75,6 +79,13 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="study" element={<Study />} />
               <Route path="read" element={<Reading />} />
+              <Route path="library" element={<Library />} />
+              <Route path="library/import" element={<ImportBook />} />
+              <Route path="library/:bookId" element={<BookDetail />} />
+              <Route
+                path="library/:bookId/chapters/:chapterId/edit"
+                element={<EditChapter />}
+              />
               <Route path="read/:articleId/edit" element={<EditArticle />} />
               <Route path="read/:articleId" element={<Reader />} />
               <Route path="books" element={<Books />} />

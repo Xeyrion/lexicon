@@ -167,6 +167,7 @@ export const useAppStore = create<AppState>()(
         await clearPersistedKind('study')
         await clearPersistedKind('reader')
         await clearPersistedKind('reader-progress')
+        await clearPersistedKind('library')
         setState({
           settings: DEFAULT_SETTINGS,
           currentBookId: 'cet4',

@@ -1,4 +1,5 @@
 import type {
+  Book,
   CardRecord,
   DayStat,
   PersonalWord,
@@ -10,6 +11,7 @@ import type {
 import {
   isPlainObject,
   sanitizeBookId,
+  sanitizeBooks,
   sanitizeDays,
   sanitizePersonalWords,
   sanitizeProgress,
@@ -34,6 +36,7 @@ export interface ParsedReaderSnapshot {
 export interface ParsedSnapshot {
   study: ParsedStudySnapshot
   reader?: ParsedReaderSnapshot
+  library?: { books: Book[] }
 }
 
 export interface SnapshotDefaults {
@@ -86,7 +89,20 @@ export function parseSnapshot(
     }
   }
 
-  return { ok: true, value: { study, reader } }
+  let library: { books: Book[] } | undefined
+  if (data.library !== undefined) {
+    if (!isPlainObject(data.library) || !Array.isArray(data.library.books)) {
+      return { ok: false, error: '备份中的书架内容不完整。' }
+    }
+    const books = sanitizeBooks(data.library.books)
+    // Same rule as the reader library: refuse rather than replace with nothing.
+    if (data.library.books.length > 0 && books.length === 0) {
+      return { ok: false, error: '备份中的书架内容不完整。' }
+    }
+    library = { books }
+  }
+
+  return { ok: true, value: { study, reader, library } }
 }
 
 export function readerProgressItems(
@@ -115,6 +131,10 @@ export function buildReaderPayload(reader: ParsedReaderSnapshot): unknown {
     },
     version: 1,
   }
+}
+
+export function buildLibraryPayload(library: { books: Book[] }): unknown {
+  return { state: { books: library.books }, version: 1 }
 }
 
 export function buildReaderProgressPayload(reader: ParsedReaderSnapshot): unknown {

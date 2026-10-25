@@ -95,9 +95,33 @@ export interface ReaderSnapshot {
   settings: ReaderSettings
 }
 
+/** One chapter of a book. Text is plain text, same shape the reader renders. */
+export interface Chapter {
+  id: string
+  title: string
+  text: string
+  wordCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Book {
+  id: string
+  title: string
+  author: string
+  source: 'epub' | 'markdown' | 'manual'
+  chapters: Chapter[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LibrarySnapshot {
+  books: Book[]
+}
+
 export interface Snapshot {
   app: 'lexicon'
-  version: 1 | 2
+  version: 1 | 2 | 3
   exportedAt: string
   settings: Settings
   currentBookId: string
@@ -105,6 +129,7 @@ export interface Snapshot {
   days: Record<string, DayStat>
   personalWords: PersonalWord[]
   reader?: ReaderSnapshot
+  library?: LibrarySnapshot
 }
 
 export type SessionStage = 'new' | 'review' | 'learning' | 'relearning'

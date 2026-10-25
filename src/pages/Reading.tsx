@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ArrowRight, Plus } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
+import { ReadingTabs } from '../components/ReadingTabs'
 import { ProgressRing } from '../components/ProgressRing'
 import { ArticleCard } from '../components/reader/ArticleCard'
 import { ArticleComposer } from '../components/reader/ArticleComposer'
@@ -68,6 +69,8 @@ export default function Reading() {
           ) : undefined
         }
       />
+
+      <ReadingTabs />
 
       {showComposer && (
         <ArticleComposer

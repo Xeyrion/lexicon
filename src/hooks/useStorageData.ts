@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import {
+  buildLibraryPayload,
   buildReaderPayload,
   buildReaderProgressPayload,
   buildStudyPayload,
@@ -23,8 +24,12 @@ import {
   type StorageInfo,
   type StorageKind,
 } from '../lib/storageInfo'
-import { waitForReaderHydration } from '../lib/useReaderHydrated'
+import {
+  waitForLibraryHydration,
+  waitForReaderHydration,
+} from '../lib/useReaderHydrated'
 import { DEFAULT_SETTINGS, useAppStore } from '../store/appStore'
+import { useLibraryStore } from '../store/libraryStore'
 import {
   articlesWithProgress,
   useReaderProgressStore,
@@ -151,14 +156,19 @@ export function useStorageData() {
       setMessage({ type: 'error', text: '阅读库还在加载，请稍后再试。' })
       return
     }
+    if (!(await waitForLibraryHydration())) {
+      setMessage({ type: 'error', text: '书架还在加载，请稍后再试。' })
+      return
+    }
     const reader = useReaderStore.getState()
     const data: Snapshot = {
       ...snapshot(),
-      version: 2,
+      version: 3,
       reader: {
         articles: articlesWithProgress(reader.articles),
         settings: reader.settings,
       },
+      library: { books: useLibraryStore.getState().books },
     }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -215,6 +225,10 @@ export function useStorageData() {
         setMessage({ type: 'error', text: '阅读库还在加载，请稍后再试。' })
         return
       }
+      if (snapshot.library && !(await waitForLibraryHydration())) {
+        setMessage({ type: 'error', text: '书架还在加载，请稍后再试。' })
+        return
+      }
 
       // Ensure pending local writes are persisted before we read revisions.
       await flushPersistedStorage()
@@ -231,6 +245,9 @@ export function useStorageData() {
       ) {
         baseRevisions['reader-progress'] = storageInfo.files['reader-progress'].revision
       }
+      if (storageInfo?.files.library.exists && typeof storageInfo.files.library.revision === 'number') {
+        baseRevisions.library = storageInfo.files.library.revision
+      }
 
       const data: Partial<Record<StorageKind, unknown>> = {
         study: buildStudyPayload(snapshot.study),
@@ -238,6 +255,9 @@ export function useStorageData() {
       if (snapshot.reader) {
         data.reader = buildReaderPayload(snapshot.reader)
         data['reader-progress'] = buildReaderProgressPayload(snapshot.reader)
+      }
+      if (snapshot.library) {
+        data.library = buildLibraryPayload(snapshot.library)
       }
 
       let result
@@ -279,13 +299,19 @@ export function useStorageData() {
         )
       }
 
+      if (snapshot.library) {
+        useLibraryStore.getState().replaceBooks(snapshot.library.books)
+        await replacePersistedKind('library', data.library, result.revisions.library ?? 1)
+      }
+
+      const parts = ['学习记录']
+      if (snapshot.reader) parts.push('阅读库')
+      if (snapshot.library) parts.push('书架')
       setMessage({
         type: 'ok',
         text: result.quarantined.length > 0
           ? `备份已导入，已自动隔离 ${result.quarantined.length} 个损坏文件，页面即将刷新。`
-          : snapshot.reader
-            ? '备份已导入，学习记录和阅读库已更新，页面即将刷新。'
-            : '备份已导入，学习记录已更新，页面即将刷新。',
+          : `备份已导入，${parts.join('、')}已更新，页面即将刷新。`,
       })
       window.setTimeout(() => window.location.reload(), 800)
     } catch {

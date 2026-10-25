@@ -149,9 +149,9 @@ export function LocalDataPanel({
               {info.keepBackups * STORAGE_FILES.length} 份。
             </p>
             <p className="mt-1 text-[10px] leading-relaxed text-faint">
-              学习 {info.backups.byKind.study.count} 份 · 阅读库{' '}
-              {info.backups.byKind.reader.count} 份 · 阅读进度{' '}
-              {info.backups.byKind['reader-progress'].count} 份
+              {STORAGE_FILES.map(({ kind, label }) => `${label} ${info.backups.byKind[kind].count} 份`).join(
+                ' · ',
+              )}
             </p>
           </div>
 

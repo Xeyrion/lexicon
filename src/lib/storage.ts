@@ -7,7 +7,7 @@ const PENDING_PREFIX = 'lexicon:pending:'
 const DELETED_PREFIX = 'lexicon:deleted:'
 const REVISION_PREFIX = 'lexicon:revision:'
 
-export type PersistedKind = 'study' | 'reader' | 'reader-progress'
+export type PersistedKind = 'study' | 'reader' | 'reader-progress' | 'library'
 
 type Kind = PersistedKind
 
@@ -15,6 +15,7 @@ const CACHE_KEYS: Record<Kind, { current: string; legacy?: string }> = {
   study: { current: 'lexicon-study-v1', legacy: 'learnword-state-v1' },
   reader: { current: 'lexicon-reader-v1', legacy: 'learnword-reader-v1' },
   'reader-progress': { current: 'lexicon-reader-progress-v1' },
+  library: { current: 'lexicon-library-v1' },
 }
 
 interface Controller {

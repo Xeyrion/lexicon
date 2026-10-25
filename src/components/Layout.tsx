@@ -13,7 +13,7 @@ import {
   Sun,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { dayTotal, dateKey, getStreak } from '../lib/date'
 import {
   getCacheWriteFailed,
@@ -29,14 +29,28 @@ import { useAppStore } from '../store/appStore'
 import { Logo } from './Logo'
 import PageFallback from './PageFallback'
 
-const NAV: { to: string; label: string; icon: LucideIcon }[] = [
+interface NavItem {
+  to: string
+  label: string
+  icon: LucideIcon
+  /** Extra paths that should light up this entry (books live under /library). */
+  also?: string[]
+}
+
+const NAV: NavItem[] = [
   { to: '/', label: '今日', icon: Home },
   { to: '/study', label: '学习', icon: BookOpen },
-  { to: '/read', label: '阅读', icon: BookOpenText },
-  { to: '/books', label: '词库', icon: Library },
+  { to: '/read', label: '阅读', icon: BookOpenText, also: ['/library'] },
+  { to: '/books', label: '词书', icon: Library },
   { to: '/stats', label: '统计', icon: BarChart3 },
   { to: '/settings', label: '设置', icon: Settings },
 ]
+
+function isNavActive(item: NavItem, pathname: string): boolean {
+  if (item.to === '/') return pathname === '/'
+  const paths = [item.to, ...(item.also ?? [])]
+  return paths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+}
 
 function navClass(active: boolean): string {
   return [
@@ -111,26 +125,20 @@ export default function Layout() {
         <Logo />
 
         <nav className="mt-12 flex flex-col gap-1">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              className={({ isActive }) => navClass(isActive)}
-            >
-              {({ isActive }) => (
-                <>
-                  <item.icon
-                    size={18}
-                    strokeWidth={isActive ? 2 : 1.7}
-                    className={isActive ? 'text-accent' : 'text-faint group-hover:text-muted'}
-                  />
-                  <span>{item.label}</span>
-                  {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
-                </>
-              )}
-            </NavLink>
-          ))}
+          {NAV.map((item) => {
+            const active = isNavActive(item, location.pathname)
+            return (
+              <Link key={item.to} to={item.to} className={navClass(active)}>
+                <item.icon
+                  size={18}
+                  strokeWidth={active ? 2 : 1.7}
+                  className={active ? 'text-accent' : 'text-faint group-hover:text-muted'}
+                />
+                <span>{item.label}</span>
+                {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
+              </Link>
+            )
+          })}
         </nav>
 
         <div className="mt-auto space-y-4">
@@ -246,31 +254,27 @@ export default function Layout() {
       {!isReader && (
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
           <div className="flex items-stretch justify-around px-2">
-            {NAV.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/'}
-                className={({ isActive }) =>
-                  `flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] transition-colors ${
-                    isActive ? 'text-accent' : 'text-faint'
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <span
-                      className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
-                        isActive ? 'bg-accent-wash' : ''
-                      }`}
-                    >
-                      <item.icon size={18} strokeWidth={isActive ? 2 : 1.7} />
-                    </span>
-                    {item.label}
-                  </>
-                )}
-              </NavLink>
-            ))}
+            {NAV.map((item) => {
+              const active = isNavActive(item, location.pathname)
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] transition-colors ${
+                    active ? 'text-accent' : 'text-faint'
+                  }`}
+                >
+                  <span
+                    className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                      active ? 'bg-accent-wash' : ''
+                    }`}
+                  >
+                    <item.icon size={18} strokeWidth={active ? 2 : 1.7} />
+                  </span>
+                  {item.label}
+                </Link>
+              )
+            })}
           </div>
         </nav>
       )}

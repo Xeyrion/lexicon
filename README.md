@@ -37,7 +37,9 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 %APPDATA%\lexicon\
 ├── study.json            学习设置、卡片进度、每日统计、个人词库
 ├── reader.json           阅读文章与阅读设置
-├── reader-progress.json  文章阅读进度
+├── reader-progress.json  文章与章节的阅读进度
+├── library.json          书架：书籍与章节正文
+├── config.json           设置页里可调的本机配置（目前只有导入上限）
 └── backups\              自动每日备份
 ```
 
@@ -71,6 +73,16 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 - **清空数据语义**：「清除全部数据」只会删除主数据文件（`study.json`、`reader.json`、`reader-progress.json`），**不会删除** `backups/` 目录。清空弹窗会明确提示备份仍会保留，且需要彻底清理时由用户手动删除备份目录。确认弹窗支持取消（Escape/遮罩/取消按钮）。
 - **手动恢复自动备份**：也可以先关闭应用，再把需要恢复的备份文件复制回原文件名，例如把 `backups/study-2026-10-24.json` 覆盖为 `study.json`。备份文件本身是完整的数据信封（包含 `appId`、`revision` 和 `data`），不要只截取其中一部分。
 
+## 书籍模式
+
+「阅读」页面顶部可以在**文章**和**书籍**之间切换，书架在 `/library`。
+
+- **导入**：支持 **EPUB** 和 **Markdown**。EPUB 的章节边界写在文件里（OPF spine + nav/NCX），所以能直接切好；Markdown 按标题层级推断，推断不准时在预览页用「按哪一级标题切」下拉改。
+- **导入前先确认**：解析完不会立刻落盘，先进「确认目录」页。可以改书名/作者、改章节名、合并、删除、上下移动；确认后才写入 `library.json`。
+- **自己写**：书架可以「新建书籍」，然后一章一章地加、改、删、排序；章节正文有 20 万字符上限，草稿自动保存。
+- **读**：章节复用文章阅读器（查词、悬停、短语、进度锚点都在），底部有「上一章 / 目录 / 下一章」。
+- **不支持**：TXT（没有章节结构，猜不准）。扫描版或带 DRM 的 EPUB 提取不出文字，导入时会直接报错而不是给你一本空书。
+
 ## 常用脚本
 
 ```powershell
@@ -85,7 +97,9 @@ npm run reader-data  # 重建 public/data/reader 阅读词典数据（需要网�
 npm run icons        # 重新生成 PWA 图标
 npm run smoke:reader # 无头 Chrome 跑一遍阅读页（需先启动 dev 服务）
 npm run smoke:app    # 首启引导 / 键盘查词 / 时间异常提示（加 --force-clean 会清数据）
+npm run smoke:books  # 造一本 EPUB 走完导入、改目录、章节阅读与跳转
 npm run smoke:app    # 首启引导 / 键盘查词 / 时间异常提示（加 --force-clean 会清数据）
+npm run smoke:books  # 造一本 EPUB 走完导入、改目录、章节阅读与跳转
 ```
 
 `dicts` 和 `reader-data` 会从 ECDICT 与 ipa-dict 拉取源数据（版本已固定到具体 commit，产物可复现），耗时取决于网络；生成结果在 `public/data/`。脚本也支持通过 `LEXICON_RAW_DIR` 环境变量复用本地原始数据缓存（旧名 `LEARNWORD_RAW_DIR` 仍兼容，新名优先）。
