@@ -22,6 +22,8 @@
 以下项目会影响整体运行方式、数据格式或恢复语义，子代理不会擅自实施。
 
 > 2026-10-25 决定：M4 采用“保留备份 + 清空弹窗告知 + 设置页展示目录/大小”；M1、M5 暂不推进；#21 只做服务端紧凑 JSON；#20、#24、#35 本轮修复。#3、#29 随之解决。
+> 
+> M7（备份浏览/恢复）与 M8（MIT）已完成。备份浏览/恢复已接入，清空弹窗已告知备份保留且不提供一键删除，损坏文件可隔离。
 
 | 编号 | 事项 | 为什么需要确认 | 建议 |
 | --- | --- | --- | --- |
@@ -31,18 +33,18 @@
 | M4 | “清除全部数据”是否连 `backups/` 一起删除 | 涉及隐私与可恢复性的取舍 | 已决定保留备份；清空弹窗告知，设置页展示备份路径/数量/大小 |
 | M5 | 词典/词书改为按需分片加载或新数据格式 | 需要改构建脚本与前端加载器 | 暂缓；先测量，再决定是否值得 |
 | M6 | 跨浏览器/多进程写入：改为只读 follower、文件锁或单实例检测 | 改变多开行为 | 建议先停止 409 自动覆盖，是否做锁另行确认 |
-| M7 | 增加服务端备份浏览/恢复 API 与 UI | 新增数据恢复入口和接口 | 建议做，但单独一批 |
-| M8 | 项目 LICENSE 选择 | 法律选择，不能替用户决定 | 建议 MIT，与数据源一致 |
+| M7 | 增加服务端备份浏览/恢复 API 与 UI | 新增数据恢复入口和接口 | 已做（设置页自动备份列表与恢复，恢复前安全备份；暂不提供删除 UI） |
+| M8 | 项目 LICENSE 选择 | 法律选择，不能替用户决定 | 已采用 MIT（见 LICENSE、package.json、README） |
 | M9 | 引入 Vitest/Playwright 与 CI | 新增开发依赖和脚本 | 建议先加 Vitest，CI 可后置 |
 
 ## 一、数据安全（最高优先）
 
 ### 1. 损坏 JSON 会造成写入死锁，导入备份还会“假成功”
-- 状态：`待修`
-- 位置：`server/dataStorage.ts` `readEnvelope`/PUT、`src/store/appStore.ts` `restore`、`src/pages/Settings.tsx` `handleImport`
-- 现象：手改、BOM、断电截断后，GET/PUT 都在 `JSON.parse` 失败并返回 500；DELETE 不解析，所以只能“清空全部数据”或手删文件。导入备份只 `setState`，debounce 后才 PUT；PUT 失败时页面已提示“备份已恢复”。
-- 建议：坏文件自动改名隔离后允许覆盖；恢复/导入等写入成功再报成功；提供单 kind 重置。
-- 备注：自动隔离属于恢复语义改动，先做“明确报错 + 指引”，隔离/覆盖 UI 放 M7 批次。
+- 状态：`已修`（已验证）
+- 位置：`server/dataStorage.ts` `readEnvelope`/PUT/DELETE、`src/pages/Settings.tsx`（隔离、恢复）
+- 现象：手改、BOM、断电截断后，GET/PUT 返回明确的 500 并给出文件路径与指引；DELETE 不解析。导入失败时会回滚已写入的文件，成功再提示。
+- 处理：损坏文件可在设置页「本地数据」隔离（`POST /api/storage/:kind/quarantine`），隔离后重命名为 `<kind>.corrupt-<时间戳>-<pid>.json` 保留在数据目录。导入采用全量校验、临时文件写入、失败回滚，且仅在写入成功后才更新内存状态并提示成功。
+- 备注：自动备份浏览/恢复与隔离 UI 已接入（M7 部分完成），备份删除 UI 暂无。
 
 ### 2. 关闭页面/崩溃可能丢最后一次修改
 - 状态：`已修`（待人工验证崩溃重放与大文件 pagehide）
@@ -51,11 +53,11 @@
 - 建议：写入前先置 dirty 标记；启动时优先重放；成功后才清 pending；关键写入立即落盘。
 
 ### 3. 每日备份“有，但不好用”，清空数据不删备份
-- 状态：`已修`（保留备份；设置页展示目录/大小；清空弹窗告知）
+- 状态：`已修`（已验证）
 - 位置：`server/dataStorage.ts` `ensureDailyBackup`/`pruneBackups`/DELETE、`src/pages/Settings.tsx`
 - 现象：每个 kind 每天只在当天第一次写入前备份一次；无校验和；与主文件同盘。DELETE 前会备份，且不删 `backups/`，用户以为清干净了，历史记录还在。
-- 处理：明确保留备份，不自动删除；设置页显示数据目录、备份目录、各文件大小、备份总份数与总大小；清空全部数据时弹窗告知备份仍保留，需要彻底清理时由用户手动删除。
-- 备注：默认每种数据保留 30 份，三种数据合计最多约 90 份。若觉得占用空间偏大，可在设置页查看备份大小后自行清理；备份列表/一键恢复仍属于 M7，未做。
+- 处理：明确保留备份，不自动删除；设置页显示数据目录、备份目录、各文件大小、备份总份数与总大小；清空全部数据时弹窗告知备份仍保留，需要彻底清理时由用户手动删除。支持按类浏览自动备份并一键恢复（恢复前自动创建安全备份），但暂不提供删除 UI。
+- 备注：默认每种数据保留 30 份，三种数据合计最多约 90 份。若觉得占用空间偏大，可到备份目录手动删除旧文件。
 
 ### 4. 恢复和持久化数据缺少 schema 校验，坏备份可导致白屏
 - 状态：`已验证`（校验器冒烟、ErrorBoundary 构建通过）
@@ -70,10 +72,11 @@
 - 建议：409 停止自动重试并提示刷新；读取超时后不要直接进入可写状态；多实例写入方案见 M6。
 
 ### 6. 浏览器缓存回退是静默的，且有约 5MB 天花板
-- 状态：`待修`
-- 位置：`src/lib/storage.ts` `writeLocal()`/`readCache()`
+- 状态：`已修`（已验证：写入结果可上报、横幅区分三种情况）
+- 位置：`src/lib/storage.ts` `writeLocal()`/`writeCache()`/`reportCacheFailure()`、`src/components/Layout.tsx`、`src/pages/Settings.tsx`
 - 现象：localStorage 写入异常被吞掉；超过容量后仍显示“暂时保存在浏览器缓存中”。
-- 建议：记录并显示缓存写入失败；估算容量；缓存模式下提示导出。
+- 处理：`writeLocal` 返回布尔，`writeCache` 返回 `'idb' | 'local' | 'failed'`；只有当**文件写入也失败且缓存同样失败**时才置 `cacheWriteFailed`（文件写成功时说明数据已落盘，缓存失败不影响数据安全）。命中时 Layout 顶部出现「当前更改只保存在内存里」横幅并给出去导出备份的入口，设置页补充“浏览器缓存只是副本，上限约 5 MB”的说明。
+- 备注：仍未做精确容量估算（只给上限提示），也没有在缓存模式下强制拦截写入。
 
 ## 二、正确性
 
@@ -90,10 +93,11 @@
 - 建议：`?from=start` 或独立按钮。
 
 ### 9. 词书重建/删词后旧 progress 残留
-- 状态：`待修`
-- 位置：`src/lib/stats.ts` `bookStats`、Stats/Dashboard
+- 状态：`部分修复`（整本词书级已统一；单词级仍靠百分比夹紧）
+- 位置：`src/lib/stats.ts` `summarizeStudy`、`src/pages/Stats.tsx`
 - 现象：旧 `bookId:wordId` 记录不清理，统计口径不一致。
-- 建议：清理失效 key 或统一统计基准。
+- 处理：`summarizeStudy` 增加可选 `validBookIds`，统计页用 registry 里的词书 id + `personal` 构造集合传入，整本词书被删后其孤儿记录不再计入「已学/已掌握」。`registry` 加载中时传 `undefined`（不筛选），避免数字闪成 0。
+- 备注：单本词书内删掉个别词造成的孤儿记录仍在 `progress` 里，只是每本书的百分比会用 `wordCount` 夹紧。彻底清理需要加载词表（12MB）或改数据层，本轮不做。
 
 ### 10. 词形还原的候选顺序会命中错误词条
 - 状态：`已验证`（starer→stare、changer→change、hoper→hope、hoped→hope）
@@ -108,16 +112,17 @@
 - 建议：异常 due 检测与修复计划。
 
 ### 12. 导入备份不是事务性的
-- 状态：`待修`
-- 位置：`Settings.handleImport`
+- 状态：`已修`（已验证）
+- 位置：`server/dataStorage.ts` `importKinds`、`src/pages/Settings.tsx` `handleImport`
 - 现象：三个 store 分别 debounce 写入，中途失败会半套数据。
-- 建议：全量校验/暂存，全部成功后再切换 UI。
+- 处理：服务端采用事务式导入（全量 preflight、临时文件写入、失败回滚、损坏文件隔离），客户端仅在服务端提交成功后才更新内存状态并提示成功。旧版冲突检测仍保留。
 
 ### 13. hydration 超时后以“空数据”继续
-- 状态：`待修`（仅增加超时警告，未改为慢存储只读）
-- 位置：`useHydrated`、`useReaderHydrated`
+- 状态：`已修`（超时改为只读，不再放开写入）
+- 位置：`src/lib/useHydrated.ts`、`src/lib/useReaderHydrated.ts`、`src/lib/storage.ts` `setHydrationWriteBlocked`、`src/components/Layout.tsx`
 - 现象：2.5 秒后强制返回 true，可能用空状态覆盖旧文件。
-- 建议：慢存储只读提示，不直接可写。
+- 处理：`useHydrated` 改为三态 `'loading' | 'ready' | 'slow'`。`slow` 时仍然渲染应用（不把用户困在启动页），但通过 `setHydrationWriteBlocked('study' | 'reader', true)` 暂停全部写入：`schedule()` 直接丢弃新快照，`flush()` 提前返回（页面隐藏时也不会写）。学习与阅读两个来源用 keyed Set 记录，互相不会误解除。Layout 顶部出现「已暂停保存…请重新加载」横幅，附「重新加载」按钮。
+- 备注：`flush()` 仍不检查标签页写锁（`yieldToOtherTab` 依赖它在让出锁之前落盘），只检查 hydration 闸门。
 
 ### 14. 不支持 Web Locks 的浏览器永远停在启动页
 - 状态：`已修`（无 Web Locks 时显示说明，需用户明确“仍然进入”）
@@ -229,10 +234,11 @@
 - 建议：移动端状态；实际尺寸测量。
 
 ### 32. 确认/重置不一致
-- 状态：`待修`
-- 位置：`Settings.tsx`、`Books.tsx`
-- 现象：文章删除有确认，个人词没有；清空进度二次确认靠 onBlur；全部清除不删备份。
-- 建议：统一确认/撤销，列出删除/保留清单。
+- 状态：`待修`（范围已缩小）
+- 位置：`Settings.tsx`
+- 现象：清空进度的二次确认靠 `confirm` 状态机 + `onBlur`，与「清空全部数据」的弹窗交互不一致。
+- 备注：**个人词删除已有确认**（`Books.tsx` 用 `window.confirm`），此前 #32 与 #15 的记载互相矛盾，已按代码更正。
+- 建议：统一成和「清空全部数据」一致的弹窗组件。
 
 ### 33. 首次使用/空状态
 - 状态：`待修`
@@ -250,8 +256,10 @@
 - 处理：已开启 `"strict": true`，`npm run build` 通过；未额外开启 `noUncheckedIndexedAccess` 等更严格选项。
 
 ### 36. 无测试、无 CI、无 test 脚本
-- 状态：`待确认`（M9）
-- 建议：Vitest + 临时目录集成测试；Playwright 冒烟。
+- 状态：`部分修复`（已有 Vitest 与 59 条纯函数测试；无 CI、无集成/E2E）
+- 位置：`vitest.config.ts`、`src/lib/__tests__/`
+- 处理：`npm test` / `npm run test:watch` 已可用。测试只覆盖 `validation.ts`（40 条）与 `snapshotImport.ts`（19 条），即「坏数据怎么被丢弃/拒绝」这一层。
+- 建议：后续补服务端 `/api/storage` 的集成测试（临时数据目录）与 Playwright 冒烟。
 
 ### 37. 文档缺失
 - 状态：`已修`
@@ -275,8 +283,8 @@
 - 建议：拆组件/hooks；共享 `fetchJson`；稳定 hook 返回值。
 
 ### 41. 仓库卫生与版本控制
-- 状态：`已修`（已初始化 Git，已纳入 `public/data`）
-- 剩余：LICENSE（M8）、大文件策略、CI。
+- 状态：`已修`（已初始化 Git，已纳入 `public/data`，已添加 MIT LICENSE）
+- 剩余：大文件策略、CI。
 
 ### 42. 安全边界（低）
 - 状态：`暂缓`
@@ -325,11 +333,63 @@
 
 ### 未验证 / 仍需人工确认
 
-- 自动备份列表、一键恢复、删除备份 UI 仍未做（M7）。
+- 自动备份列表、一键恢复已接入（M7），但删除备份 UI 暂未提供（需手动操作）。
 - 备份保留上限 30 份/类只做了逻辑与统计验证，没有压测 31 份以上的滚动清理。
 - `strict` 未包含 `noUncheckedIndexedAccess` 等额外严格选项。
 - 移动端仅做 390px 截图检查，未在真实手机/平板上验证触摸与滚动。
 - 路由懒加载后的首次切换有短暂骨架屏；已在 Layout 内显示，侧栏不会消失。
+
+## 2026-10-25 第三批（代码体检与构建修复）
+
+工作区当时存在一批未提交的导入重构（新增 `src/lib/snapshotImport.ts`，`Settings.tsx` 导入流程改为走服务端事务式 `/api/storage/import`），处于半成品状态：`npm run build` 失败（5 处 TS 错误），lint 4 条警告全部落在同一段。
+
+### 已处理
+
+- `Settings.tsx` 中重复的解构：`restore` 与 `appReplace` 指向同一个 `state.restore`，且 `appReplace(snapshot.study)` 传入的是 `ParsedStudySnapshot`（无 `app` 字段），实际每次都会走“这不是词间导出的备份文件”分支，是无效调用。已删除，改由 `useAppStore.setState` 一次性写入。
+- `useReaderStore((state) => state.replaceArticles)` 指向不存在的方法。已删除；阅读进度改用既有的 `replaceAll`，去掉直接 `setState` 的 `Record<string, never>` 断言。
+- `SnapshotParseResult` 改为 `{ ok: true, value } | { ok: false, error }` 判别联合，消除 `parsed.error` 的 `string | undefined` 问题。
+- 导入后的写入顺序统一为「先 setState，再 `replacePersistedKind`」：`replacePersistedKind` 会清掉 setState 触发的 debounce 并同步 revision，避免学习库多写一次、阅读库写入顺序与学习库不一致。
+- `importBusy` 之前只赋值不消费，已接到「导入备份」按钮的 disabled 与文案（导入中…）。
+- 结果：`npm run build` 通过（Settings 33.64KB / gzip 9.51KB，Stats 365KB 未变），`npx oxlint` 仅剩 1 条 `set-state-in-effect`（`loadBackups()` 在挂载 effect 中同步置 loading，非缺陷）。
+
+### 本轮验证
+
+- 服务端（临时数据目录，未触碰 `%APPDATA%\lexicon`）：PUT 基线 revision 递增；`POST /api/storage/import` 基线过期返回 409 并带当前 revision；基线正确时多文件导入返回 `{study:2, reader-progress:1}` 且生成当日备份；损坏 JSON 时 GET 返回 500 且含绝对路径，`POST /:kind/quarantine` 后文件改名为 `*.corrupt-*.json`、GET 变 404；非本机 `Origin` 返回 403。
+- 解析器（esbuild 打包后直跑）：正常备份、老 `learnword` 格式、仅学习库备份均通过；非对象/别的应用/缺字段/阅读库全部不可识别时按预期拒绝；合法 `CardRecord` 正常保留，坏条目被丢弃并告警。
+- 未验证：真实浏览器里完整走一遍「选择文件 → 导入 → 自动刷新」；`Settings.tsx` 已增至 1221 行（#40 的组织问题在加重）。
+
+### 待办
+
+- 工作区仍有 17 个临时文件（`__res.txt`、`final*.txt`、`out*.txt`、`tsc*.out`、`find_replace.js`、`_tmp_check.py`、空文件 `con`/`res.txt`/`result.txt`），建议清理并补进 `.gitignore`；`con` 是 Windows 保留名，部分工具会报错。
+- 本轮改动未提交，建议单独 commit 后再继续。
+
+## 2026-10-25 第四批（A/B 批次：收尾 + 数据安全）
+
+### 批次 A：收尾与测试
+
+- 删除根目录 17 个调试残留（`__res.txt`、`final*.txt`、`out*.txt`、`tsc*.out`、`result*.txt`、`find_replace.js`、`_tmp_check.py`，以及 0 字节的 `con`）。`con` 是 Windows 保留设备名，普通删除会失败，最终用 `\\?\` 前缀经 .NET `File.Delete` 移除。
+- `.gitignore` 增加根目录临时产物规则（`/*.out`、`/tsc*.txt`、`/out*.txt`、`/result*.txt`、`/__res.txt`、`/res.txt`、`/con`）与 `.workbuddy-ai/`。
+- 引入 Vitest：`vitest.config.ts` 独立于 `vite.config.ts`（不加载本地存储插件），`environment: 'node'`。`npm test` / `npm run test:watch` 可用。
+- 新增 59 条纯函数测试：`validation.test.ts`（40 条）、`snapshotImport.test.ts`（19 条）。覆盖合法保留、坏条目丢弃、`__proto__` 不污染原型、重复 id 去重、数值夹紧、`parseSnapshot` 的四种拒绝路径与 payload 形状。
+
+### 批次 B：数据安全
+
+- **#13**：`useHydrated` 三态化，超时后不再放开写入，见上文第 13 条。
+- **#6**：缓存写入结果可上报，见上文第 6 条。
+- **#9**：`summarizeStudy` 支持 `validBookIds`，见上文第 9 条。
+
+### 本轮验证
+
+- `npm run build` 通过（Settings 33.64KB / gzip 9.51KB，Stats 365KB 未变）；`npx tsc -p tsconfig.app.json --noEmit` 无错误；`npx oxlint` 1 warning（`Settings.tsx` 挂载时同步置 loading，非缺陷）。
+- `npx vitest run`：2 个文件 59 条全绿。
+- 端到端（临时数据目录 `%TEMP%\lexicon-smoke`，未触碰 `%APPDATA%\lexicon`）：用**客户端真实构造的 payload**（`parseSnapshot` → `buildStudyPayload` / `buildReaderPayload` / `buildReaderProgressPayload`）调用 `POST /api/storage/import`，返回 `{study:1, reader:1, reader-progress:1}`；三个文件回读均为 `{state, version:1}` 信封，`settings.dailyNew=30`、`currentBookId=cet6`、`progress` 键 `cet6:abandon`、个人词 1 条、文章 1 篇、`reader-progress.items.a1.progress=0.4`；随后用过期基线再次导入返回 409。
+
+### 未验证 / 待办
+
+- 真实浏览器里点「导入备份」走一遍（本机未装浏览器自动化，只验证了 payload → 服务端 → 文件回读；React 侧仅靠类型检查与代码审阅）。
+- hydration 超时闸门没有在真实慢存储下触发过（需要人为把 `readFile` 延迟或指向超大文件）。
+- 缓存写满的场景没有实测（只验证了代码路径与横幅文案）。
+- #9 的单词级孤儿记录仍在（见第 9 条备注）。
 
 ## 本轮子代理分工
 
@@ -374,3 +434,10 @@
   4. 导入一份正常备份，确认数据恢复。
   5. 手动制造坏 JSON（备份后），确认错误提示可理解，且不会“假成功”。
 - 每个修复批次单独 commit，便于回滚。
+
+## 本批次更新记录（2026-10-25）
+
+- **M7 完成**：服务端新增备份浏览（`GET /api/storage/backups`）、单类恢复（`POST /api/storage/backups/restore`）、损坏文件隔离（`POST /api/storage/:kind/quarantine`），并在设置页接入「自动备份」列表与恢复（恢复前自动创建安全备份）、「本地数据」隔离入口。
+- **M8 完成**：项目采用 MIT License，`LICENSE`、`package.json`、`README.md` 已标注。
+- **备份语义收敛**：清空全部数据仅删除主文件，不删除 `backups/`；清空弹窗已明确告知并展示备份路径/数量/大小；导入备份采用事务式处理（全量校验、临时文件写入、失败回滚、损坏文件隔离），失败时不再“假成功”。
+- **文档同步**：`README.md` 更新备份恢复/隔离/清空语义及 MIT 说明；`docs/ISSUES.md` 更新 #1/#3/#12 状态，M7/M8 标记为已做，补充本批次验证要点。
