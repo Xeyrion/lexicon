@@ -65,22 +65,50 @@ function httpError(status: number, message: string): Error {
 }
 
 async function readEnvelope(kind: Kind): Promise<Envelope | null> {
+  const file = fileFor(kind)
+  let raw: string
   try {
-    const raw = await readFile(fileFor(kind), 'utf8')
-    const parsed = JSON.parse(raw) as Partial<Envelope>
-    if (
-      parsed.appId !== APP_ID ||
-      parsed.kind !== kind ||
-      typeof parsed.revision !== 'number' ||
-      !('data' in parsed)
-    ) {
-      throw httpError(500, `${kind}.json 格式不正确，请先备份后检查文件。`)
-    }
-    return parsed as Envelope
+    raw = await readFile(file, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw error
+    const detail = error instanceof Error ? error.message : String(error)
+    throw httpError(
+      500,
+      `无法读取数据文件 ${file}：${detail}。请先备份或重命名该文件，然后重启应用。`,
+    )
   }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw httpError(
+      500,
+      `数据文件 ${file} 不是合法的 JSON（${detail}）。请先备份或重命名该文件，然后重启应用。`,
+    )
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw httpError(
+      500,
+      `数据文件 ${file} 格式不正确（顶层应为包含 appId、kind、revision、data 的对象）。请先备份或重命名该文件，然后重启应用。`,
+    )
+  }
+
+  const envelope = parsed as Partial<Envelope>
+  if (
+    envelope.appId !== APP_ID ||
+    envelope.kind !== kind ||
+    typeof envelope.revision !== 'number' ||
+    !('data' in envelope)
+  ) {
+    throw httpError(
+      500,
+      `数据文件 ${file} 格式不正确（缺少 appId、kind、revision 或 data 等必要字段）。请先备份或重命名该文件，然后重启应用。`,
+    )
+  }
+  return envelope as Envelope
 }
 
 async function writeEnvelopeAtomic(kind: Kind, envelope: Envelope): Promise<void> {

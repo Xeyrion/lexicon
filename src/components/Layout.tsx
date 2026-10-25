@@ -78,6 +78,7 @@ export default function Layout() {
     getFileStorageError,
     () => '',
   )
+  const hasWriteConflict = storageError.includes('另一个窗口更新')
 
   return (
     <div className="min-h-svh">
@@ -155,13 +156,24 @@ export default function Layout() {
         >
           {(storageStatus === 'offline' || storageStatus === 'error') &&
             (!isReader || storageStatus === 'error') && (
-            <div className="mb-5 flex items-start gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
+            <div className="mb-5 flex flex-wrap items-start gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
               <AlertCircle size={16} className="mt-0.5 shrink-0 text-accent" strokeWidth={1.8} />
-              <span>
+              <span className="min-w-0 flex-1">
                 {storageStatus === 'offline'
                   ? '本地文件服务未连接，更改暂时保存在浏览器缓存中。请通过 start.cmd 启动应用。'
-                  : `本地文件读写失败：${storageError} 更改暂时保存在浏览器缓存中，请检查数据目录或从备份恢复。`}
+                  : hasWriteConflict
+                    ? '本地文件已被另一个窗口更新，本页已停止自动写入以避免覆盖。当前未保存的更改不会在刷新后保留；如需保留，请先到设置页导出备份。'
+                    : `本地文件读写失败：${storageError || '未知错误'}。更改暂时保存在浏览器缓存中。如果数据文件损坏，请先备份或重命名该文件，然后重新加载页面。`}
               </span>
+              {storageStatus === 'error' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary whitespace-nowrap"
+                  onClick={() => window.location.reload()}
+                >
+                  {hasWriteConflict ? '放弃更改并重新加载' : '重新加载页面'}
+                </button>
+              )}
             </div>
           )}
           <AnimatePresence mode="wait" initial={false}>

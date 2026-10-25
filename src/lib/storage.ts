@@ -5,6 +5,7 @@ const API_BASE = '/api/storage'
 const APP_ID = 'lexicon'
 const PENDING_PREFIX = 'lexicon:pending:'
 const DELETED_PREFIX = 'lexicon:deleted:'
+const REVISION_PREFIX = 'lexicon:revision:'
 
 type Kind = 'study' | 'reader' | 'reader-progress'
 
@@ -24,6 +25,7 @@ interface Controller {
   pending: string | null
   timer: number | null
   chain: Promise<void>
+  conflict: boolean
 }
 
 interface FileEnvelope {
@@ -167,6 +169,21 @@ function setDeleted(kind: Kind, value: boolean): void {
   writeFlag(DELETED_PREFIX, kind, value)
 }
 
+function readStoredRevision(kind: Kind): number | null {
+  const raw = readLocal(`${REVISION_PREFIX}${kind}`)
+  if (raw == null) return null
+  const revision = Number(raw)
+  return Number.isInteger(revision) && revision >= 0 ? revision : null
+}
+
+function storeRevision(kind: Kind, revision: number): void {
+  writeLocal(`${REVISION_PREFIX}${kind}`, String(revision))
+}
+
+function clearStoredRevision(kind: Kind): void {
+  removeLocal(`${REVISION_PREFIX}${kind}`)
+}
+
 function installListeners(): void {
   if (listenersInstalled || typeof window === 'undefined') return
   listenersInstalled = true
@@ -263,6 +280,7 @@ async function readFile(controller: Controller): Promise<FileResult> {
     }
     reportFileStatus(controller.kind, 'online')
     controller.revision = payload.revision
+    storeRevision(controller.kind, payload.revision)
     return { status: 'ok', data: payload.data, revision: payload.revision }
   } catch {
     reportFileStatus(controller.kind, 'offline')
@@ -273,65 +291,78 @@ async function readFile(controller: Controller): Promise<FileResult> {
 }
 
 async function writeFile(controller: Controller, value: string): Promise<boolean> {
+  if (controller.conflict) return false
+
   let data: unknown
   try {
     data = JSON.parse(value)
   } catch {
-    setPending(controller.kind, true)
+    reportFileStatus(
+      controller.kind,
+      'error',
+      '待写入的数据不是合法 JSON，已保留缓存以便重试。',
+    )
     return false
   }
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const body = JSON.stringify({ baseRevision: controller.revision, data })
-    const keepalive = new TextEncoder().encode(body).length < 60_000
-    const abort = new AbortController()
-    const timeout = window.setTimeout(() => abort.abort(), 3000)
-    try {
-      const response = await fetch(`${API_BASE}/${controller.kind}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body,
-        cache: 'no-store',
-        keepalive,
-        signal: abort.signal,
-      })
-      if (response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          revision?: unknown
-        } | null
-        if (payload && typeof payload.revision === 'number') {
-          controller.revision = payload.revision
-        }
-        setPending(controller.kind, false)
-        reportFileStatus(controller.kind, 'online')
-        return true
-      }
+  const body = JSON.stringify({ baseRevision: controller.revision, data })
+  const keepalive = new TextEncoder().encode(body).length < 60_000
+  const abort = new AbortController()
+  const timeout = window.setTimeout(() => abort.abort(), 3000)
+  try {
+    const response = await fetch(`${API_BASE}/${controller.kind}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body,
+      cache: 'no-store',
+      keepalive,
+      signal: abort.signal,
+    })
+    if (response.ok) {
       const payload = (await response.json().catch(() => null)) as {
         revision?: unknown
-        error?: unknown
       } | null
-      if (response.status === 409 && attempt === 0) {
-        if (payload && typeof payload.revision === 'number') {
-          controller.revision = payload.revision
-          continue
-        }
+      if (payload && typeof payload.revision === 'number') {
+        controller.revision = payload.revision
+        storeRevision(controller.kind, payload.revision)
       }
-      const message =
-        typeof payload?.error === 'string'
-          ? payload.error
-          : `本地存储服务返回 ${response.status}`
-      reportFileStatus(controller.kind, 'error', message)
-      break
-    } catch {
-      reportFileStatus(controller.kind, 'offline')
-      break
-    } finally {
-      window.clearTimeout(timeout)
+      reportFileStatus(controller.kind, 'online')
+      return true
     }
-  }
 
-  setPending(controller.kind, true)
-  return false
+    const payload = (await response.json().catch(() => null)) as {
+      revision?: unknown
+      error?: unknown
+    } | null
+    if (response.status === 409) {
+      // Keep the server revision so the next successful load can resume writing,
+      // but never retry with this tab's possibly stale snapshot.
+      controller.conflict = true
+      controller.pending = null
+      setPending(controller.kind, false)
+      if (payload && typeof payload.revision === 'number') {
+        controller.revision = payload.revision
+      }
+      reportFileStatus(
+        controller.kind,
+        'error',
+        '数据已在另一个窗口更新，请刷新页面后继续。',
+      )
+      return false
+    }
+
+    const message =
+      typeof payload?.error === 'string'
+        ? payload.error
+        : `本地存储服务返回 ${response.status}`
+    reportFileStatus(controller.kind, 'error', message)
+    return false
+  } catch {
+    reportFileStatus(controller.kind, 'offline')
+    return false
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 async function deleteFile(kind: Kind): Promise<boolean> {
@@ -345,6 +376,7 @@ async function deleteFile(kind: Kind): Promise<boolean> {
       signal: abort.signal,
     })
     if (response.ok || response.status === 404) {
+      clearStoredRevision(kind)
       reportFileStatus(kind, 'online')
       return true
     }
@@ -371,6 +403,8 @@ async function load(controller: Controller): Promise<string | null> {
   if (readFlag(DELETED_PREFIX, controller.kind)) {
     const deleted = await deleteFile(controller.kind)
     if (deleted) setDeleted(controller.kind, false)
+    controller.pending = null
+    setPending(controller.kind, false)
     await clearCache(keys)
     return null
   }
@@ -378,7 +412,25 @@ async function load(controller: Controller): Promise<string | null> {
   const cached = await readCache(controller)
 
   if (readFlag(PENDING_PREFIX, controller.kind) && cached != null) {
-    await writeFile(controller, cached)
+    // A previous session left unflushed data. Replay it before reading the
+    // remote file so a crash cannot silently replace it with older content.
+    // The last revision known to this browser lets the retry succeed without
+    // blindly accepting whatever revision the server currently has.
+    const storedRevision = readStoredRevision(controller.kind)
+    if (storedRevision != null) controller.revision = storedRevision
+    controller.pending = cached
+    const written = await writeFile(controller, cached)
+    if (written) {
+      controller.conflict = false
+      if (controller.pending === cached) {
+        controller.pending = null
+        setPending(controller.kind, false)
+      }
+      warnedOffline = false
+      return cached
+    }
+    // On 409 writeFile has cleared the dirty flag and marked this controller
+    // as blocked; otherwise keep the flag/pending value for the next retry.
     return cached
   }
 
@@ -386,14 +438,21 @@ async function load(controller: Controller): Promise<string | null> {
 
   if (remote.status === 'ok') {
     const value = JSON.stringify(remote.data)
-    setPending(controller.kind, false)
+    controller.conflict = false
     warnedOffline = false
+    // A newer value may have been scheduled while the file was loading. In
+    // that case keep the cache and the dirty flag for that value instead of
+    // overwriting them with the older remote snapshot.
+    if (controller.pending != null) return controller.pending
+    setPending(controller.kind, false)
     await writeCache(controller, value)
     return value
   }
 
   if (remote.status === 'missing') {
     controller.revision = 0
+    clearStoredRevision(controller.kind)
+    controller.conflict = false
     warnedOffline = false
     if (cached != null) {
       await writeFile(controller, cached)
@@ -414,29 +473,59 @@ async function load(controller: Controller): Promise<string | null> {
   return cached
 }
 
-async function flush(controller: Controller): Promise<void> {
-  if (controller.timer !== null) {
-    window.clearTimeout(controller.timer)
-    controller.timer = null
-  }
-  const value = controller.pending
-  if (value == null) return
-  controller.pending = null
-  await writeCache(controller, value)
-  await writeFile(controller, value)
-}
-
-function schedule(controller: Controller, value: string): void {
-  if (!writerEnabled) return
-  controller.pending = value
-  setDeleted(controller.kind, false)
+function armFlush(controller: Controller): void {
   if (controller.timer !== null) window.clearTimeout(controller.timer)
   controller.timer = window.setTimeout(() => {
+    controller.timer = null
     controller.chain = controller.chain.then(
       () => flush(controller),
       () => flush(controller),
     )
   }, controller.debounceMs)
+}
+
+async function flush(controller: Controller): Promise<void> {
+  if (controller.timer !== null) {
+    window.clearTimeout(controller.timer)
+    controller.timer = null
+  }
+  if (controller.conflict) return
+
+  // Keep the pending value until the file write has actually succeeded. A new
+  // value may arrive while we await IndexedDB/fetch, so compare after writing.
+  const value = controller.pending
+  if (value == null) return
+
+  await writeCache(controller, value)
+  const written = await writeFile(controller, value)
+
+  if (controller.conflict) return
+
+  if (!written) {
+    // Leave pending and the dirty flag untouched: the next change or
+    // pagehide/visibility flush can retry with the latest value.
+    return
+  }
+
+  if (controller.pending === value) {
+    controller.pending = null
+    setPending(controller.kind, false)
+    return
+  }
+
+  // A newer value arrived during the write; keep it dirty and flush it after
+  // another debounce instead of dropping it.
+  if (controller.pending != null) armFlush(controller)
+}
+
+function schedule(controller: Controller, value: string): void {
+  if (!writerEnabled || controller.conflict) return
+  controller.pending = value
+  // Mark dirty synchronously so a crash during the debounce window is
+  // recoverable from the browser cache on next startup.
+  setPending(controller.kind, true)
+  setDeleted(controller.kind, false)
+  armFlush(controller)
 }
 
 async function remove(controller: Controller): Promise<void> {
@@ -447,7 +536,10 @@ async function remove(controller: Controller): Promise<void> {
   controller.pending = null
   setDeleted(controller.kind, true)
   const deleted = await deleteFile(controller.kind)
-  if (deleted) setDeleted(controller.kind, false)
+  if (deleted) {
+    setDeleted(controller.kind, false)
+    controller.conflict = false
+  }
   const keys = CACHE_KEYS[controller.kind]
   await clearCache(keys)
   setPending(controller.kind, false)
@@ -464,11 +556,12 @@ export function createFileBackedStorage(options: {
     cacheKey: keys.current,
     legacyCacheKey: keys.legacy,
     debounceMs: options.debounceMs ?? 400,
-    revision: 0,
+    revision: readStoredRevision(options.kind) ?? 0,
     idbBroken: false,
     pending: null,
     timer: null,
     chain: Promise.resolve(),
+    conflict: false,
   }
   controllers.add(controller)
   installListeners()
@@ -493,7 +586,12 @@ export async function clearPersistedKind(kind: Kind): Promise<void> {
   }
   setDeleted(kind, true)
   const deleted = await deleteFile(kind)
-  if (deleted) setDeleted(kind, false)
+  if (deleted) {
+    setDeleted(kind, false)
+    for (const controller of controllers) {
+      if (controller.kind === kind) controller.conflict = false
+    }
+  }
   await clearCache(keys)
   setPending(kind, false)
 }
