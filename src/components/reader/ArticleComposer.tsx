@@ -1,5 +1,12 @@
-import { useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from 'react'
-import { ArrowRight, FileText, Sparkles, Upload, X } from 'lucide-react'
+import {
+  useCallback,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type FormEvent,
+} from 'react'
+import { ArrowRight, FileText, History, Sparkles, Upload, X } from 'lucide-react'
 import type { ReaderArticle } from '../../types'
 import {
   MAX_ARTICLE_CHARS,
@@ -8,6 +15,7 @@ import {
   prepareArticleBody,
   readingMinutes,
 } from '../../lib/reader'
+import { useArticleDraft, type ArticleDraft } from '../../hooks/useArticleDraft'
 import { useReaderStore } from '../../store/readerStore'
 
 const SAMPLE = {
@@ -27,6 +35,12 @@ interface ArticleComposerProps {
   onCancel?: () => void
 }
 
+function formatClock(timestamp: number): string {
+  const date = new Date(timestamp)
+  const pad = (value: number) => `${value}`.padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 export function ArticleComposer({ article, onSave, onCancel }: ArticleComposerProps) {
   const createArticle = useReaderStore((state) => state.createArticle)
   const updateArticle = useReaderStore((state) => state.updateArticle)
@@ -36,6 +50,21 @@ export function ArticleComposer({ article, onSave, onCancel }: ArticleComposerPr
   const [source, setSource] = useState(article?.source ?? '粘贴')
   const [error, setError] = useState<string | null>(null)
   const editing = Boolean(article)
+
+  const applyDraft = useCallback((draft: ArticleDraft) => {
+    setTitle(draft.title)
+    setText(draft.text)
+    setSource(draft.source)
+    setError(null)
+  }, [])
+
+  const { pendingDraft, restoreDraft, discardDraft, clearDraft } = useArticleDraft({
+    articleId: article?.id,
+    title,
+    text,
+    source,
+    onRestore: applyDraft,
+  })
 
   const words = countWords(text)
   const minutes = readingMinutes(words)
@@ -107,14 +136,42 @@ export function ArticleComposer({ article, onSave, onCancel }: ArticleComposerPr
         setError('文章已经不存在了，可能已被删除。')
         return
       }
+      clearDraft()
       onSave(updated)
       return
     }
-    onSave(createArticle(payload))
+    const created = createArticle(payload)
+    clearDraft()
+    onSave(created)
   }
 
   return (
     <form onSubmit={submit} className="surface-card overflow-hidden">
+      {pendingDraft && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-line bg-accent-wash px-6 py-3 sm:px-8">
+          <History size={15} className="shrink-0 text-accent" strokeWidth={1.8} />
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink-soft">
+            发现未保存的草稿（保存于 {formatClock(pendingDraft.savedAt)}）
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-line bg-surface px-3 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent/40 hover:text-accent"
+              onClick={restoreDraft}
+            >
+              恢复
+            </button>
+            <button
+              type="button"
+              className="rounded-full px-3 py-1 text-[11px] text-muted transition-colors hover:bg-surface-muted hover:text-ink"
+              onClick={discardDraft}
+            >
+              丢弃
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 border-b border-line px-6 py-6 sm:flex-row sm:items-end sm:justify-between sm:px-8">
         <div>
           <p className="kicker">{editing ? 'Edit reading' : 'New reading'}</p>
