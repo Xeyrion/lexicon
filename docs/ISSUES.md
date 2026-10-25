@@ -285,9 +285,10 @@
 - 备注：`meta` 只是新增字段，前端读取逻辑未变。已有的 `public/data/**` 没有重新生成，`meta` 要等下次执行 `npm run dicts` / `reader-data` 才会出现。
 
 ### 39. schema 迁移缺失
-- 状态：`待修`
+- 状态：`暂缓`（目前没有真实迁移需求）
 - 位置：server `schemaVersion`、persist `version`
-- 建议：客户端校验 + migrate 链 + 兼容性测试。
+- 现状：三个 store 都是 `version: 1`，服务端 `schemaVersion` 也是 1；本次新增的 `ReaderArticle.anchor` 是可选字段，旧数据缺它就回落到百分比，不需要迁移。
+- 建议：等真要改结构（比如第二阶段加书籍数据）时再做 migrate 链；在那之前只需要「读到更高 version 时拒绝并提示」这一层保护。
 
 ### 40. 代码组织
 - 状态：`部分修复`（Settings 已拆；Study/Reader 未动）
