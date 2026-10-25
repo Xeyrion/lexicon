@@ -26,7 +26,8 @@ export const STORY_TEMPLATE: StoryTemplate = {
     'start 是第一个节点的 id。initialVars 声明所有变量；条件、效果和文本变体里用到的变量都必须先在这里声明。',
     'endings 是结局清单。hidden: true 的结局在结局图鉴里只占一个名额，不显示名字；hint 是给玩家的提示。',
     'nodes 是节点清单。text 是正文；variants 按顺序匹配、最后一个命中的替换正文；ending 表示这个节点就是结局。',
-    'choices 是选项。to 指向目标节点；requires 不满足时该选项不出现；effects 在选中后修改变量。',
+    'choices 是选项。to 指向目标节点（指向自己就是回到当前节点）；requires 不满足时该选项不出现；effects 在选中后修改变量。',
+    'effects 有两种写法：{ "var": "x", "set": 值 } 直接赋值；{ "var": "x", "add": 数字 } 在原来的数值上累加（负数就是扣减，变量没声明或不是数字时从 0 开始算）。',
     '每个节点要么有 choices，要么有 ending，不能都有，也不能都没有；所有节点都必须从 start 走得到。',
     '以 _ 开头的字段只是说明，导入时会被忽略。',
   ],
@@ -72,14 +73,24 @@ export const STORY_TEMPLATE: StoryTemplate = {
           label: 'Leave three coins and take the bridge',
           to: 'bridge',
           requires: [{ var: 'coins', gte: 3 }],
-          _comment: 'requires：条件不满足时，这个选项根本不出现。',
+          effects: [{ var: 'coins', add: -3 }],
+          _comment:
+            'requires：条件不满足时这个选项根本不出现。effects 用 add 扣减数值：3 + (-3) = 0。',
+        },
+        {
+          id: 'search-hollow',
+          label: 'Search the hollow for another coin',
+          to: 'crossroads',
+          effects: [{ var: 'coins', add: 1 }],
+          _comment:
+            'add 是数值累加；to 指回当前节点就形成一个小循环，可以反复攒钱。',
         },
         {
           id: 'light-lantern',
           label: 'Light the lantern and take the trees',
           to: 'forest',
           effects: [{ var: 'lantern', set: true }],
-          _comment: 'effects：选中后改变变量，后面的正文和条件都会跟着变。',
+          _comment: 'set 是直接赋值：选中后改变变量，后面的正文和条件都会跟着变。',
         },
         {
           id: 'go-home',

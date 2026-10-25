@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { STORY_TEMPLATE } from '../../components/story/storyTemplate'
 import { LIGHTHOUSE_STORY } from '../../data/lighthouse'
 import {
   applyEffects,
@@ -179,5 +180,28 @@ describe('结构校验', () => {
     })
     const reachable = reachableNodes(wide)
     expect([...reachable].sort()).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('导出的模板', () => {
+  it('模板本身必须是合法故事（写作者第一件事就是导入它）', () => {
+    expect(validateStory(STORY_TEMPLATE)).toEqual([])
+  })
+
+  it('set 和 add 两种效果都要示范到', () => {
+    const effects = STORY_TEMPLATE.nodes.flatMap((node) =>
+      (node.choices ?? []).flatMap((choice) => choice.effects ?? []),
+    )
+    expect(effects.some((effect) => 'set' in effect)).toBe(true)
+    expect(effects.some((effect) => 'add' in effect)).toBe(true)
+  })
+
+  it('add 要正负各一，否则看不出它是累加', () => {
+    const adds = STORY_TEMPLATE.nodes
+      .flatMap((node) => (node.choices ?? []).flatMap((choice) => choice.effects ?? []))
+      .filter((effect): effect is { var: string; add: number } => 'add' in effect)
+      .map((effect) => effect.add)
+    expect(adds.some((value) => value > 0)).toBe(true)
+    expect(adds.some((value) => value < 0)).toBe(true)
   })
 })
