@@ -33,6 +33,8 @@ export interface StorageInfo {
   directory: string
   backupDirectory: string
   keepBackups: number
+  /** Server-side cap for one import request body; absent on older builds. */
+  maxImportBytes?: number
   files: Record<StorageKind, StorageFileInfo>
   backups: StorageBackupInfo
 }
@@ -109,6 +111,7 @@ function isStorageInfo(value: unknown): value is StorageInfo {
   if (typeof value.directory !== 'string') return false
   if (typeof value.backupDirectory !== 'string') return false
   if (!isFiniteNumber(value.keepBackups)) return false
+  if (value.maxImportBytes !== undefined && !isFiniteNumber(value.maxImportBytes)) return false
   if (!isRecord(value.files)) return false
   for (const kind of KINDS) {
     if (!isStorageFileInfo(value.files[kind])) return false

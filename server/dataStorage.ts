@@ -395,6 +395,7 @@ async function statusPayload(): Promise<{
   directory: string
   backupDirectory: string
   keepBackups: number
+  maxImportBytes: number
   files: Record<Kind, FileInfo>
   backups: BackupInfo
 }> {
@@ -434,6 +435,9 @@ async function statusPayload(): Promise<{
     directory: DATA_DIR,
     backupDirectory: BACKUP_DIR,
     keepBackups: KEEP_BACKUPS,
+    // Lets the client reject an oversized backup before it reads the whole file
+    // into memory, using the same number the request body cap enforces.
+    maxImportBytes: MAX_BODY_BYTES,
     files,
     backups: await readBackupInfo(),
   }
