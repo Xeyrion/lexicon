@@ -35,7 +35,7 @@ function downloadCsv(filename: string, content: string) {
 }
 
 function downloadTemplate() {
-  downloadCsv('learnword-template.csv', PERSONAL_TEMPLATE)
+  downloadCsv('lexicon-template.csv', PERSONAL_TEMPLATE)
 }
 
 export default function Books() {
@@ -95,7 +95,7 @@ export default function Books() {
       return
     }
     downloadCsv(
-      `learnword-personal-${new Date().toISOString().slice(0, 10)}.csv`,
+      `lexicon-personal-${new Date().toISOString().slice(0, 10)}.csv`,
       personalWordsToCsv(personalWords),
     )
     setMessage({ type: 'ok', text: `已导出 ${personalWords.length} 个单词。` })
@@ -314,7 +314,11 @@ export default function Books() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => removePersonalWord(item.id)}
+                      onClick={() => {
+                        if (window.confirm(`确定删除「${item.word}」吗？删除后无法恢复。`)) {
+                          removePersonalWord(item.id)
+                        }
+                      }}
                       className="icon-button h-8 w-8 shrink-0 hover:text-accent"
                       aria-label={`删除 ${item.word}`}
                     >

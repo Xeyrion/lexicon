@@ -19,6 +19,14 @@ import {
 import { createPersonalWord, type PersonalInput } from '../lib/personal'
 import { countOldReviewsToday, isFirstOldReviewToday } from '../lib/reviewMetrics'
 import { clearPersistedKind, createFileBackedStorage } from '../lib/storage'
+import {
+  isPlainObject,
+  sanitizeBookId,
+  sanitizeDays,
+  sanitizePersonalWords,
+  sanitizeProgress,
+  sanitizeSettings,
+} from '../lib/validation'
 
 export const DEFAULT_SETTINGS: Settings = {
   accent: 'us',
@@ -183,20 +191,23 @@ export const useAppStore = create<AppState>()(
       },
 
       restore: (data) => {
-        if (!data || typeof data !== 'object') return '文件格式不正确'
-        const snapshot = data as Partial<Snapshot> & { app?: string }
-        if (snapshot.app !== 'lexicon' && snapshot.app !== 'learnword') {
+        if (!isPlainObject(data)) return '文件格式不正确'
+        if (data.app !== 'lexicon' && data.app !== 'learnword') {
           return '这不是词间导出的备份文件'
         }
-        if (!snapshot.progress || !snapshot.days || !Array.isArray(snapshot.personalWords)) {
+        if (
+          !isPlainObject(data.progress) ||
+          !isPlainObject(data.days) ||
+          !Array.isArray(data.personalWords)
+        ) {
           return '备份内容不完整'
         }
         setState({
-          settings: { ...DEFAULT_SETTINGS, ...snapshot.settings },
-          currentBookId: snapshot.currentBookId ?? 'cet4',
-          progress: snapshot.progress,
-          days: snapshot.days,
-          personalWords: snapshot.personalWords,
+          settings: sanitizeSettings(data.settings, DEFAULT_SETTINGS),
+          currentBookId: sanitizeBookId(data.currentBookId) ?? 'cet4',
+          progress: sanitizeProgress(data.progress),
+          days: sanitizeDays(data.days),
+          personalWords: sanitizePersonalWords(data.personalWords),
         })
         return null
       },
@@ -215,15 +226,17 @@ export const useAppStore = create<AppState>()(
         personalWords: state.personalWords,
       }),
       merge: (persisted, current) => {
-        const saved = (persisted ?? {}) as Partial<AppState>
+        const saved = isPlainObject(persisted) ? persisted : {}
+        if (persisted !== undefined && !isPlainObject(persisted)) {
+          console.warn('[Lexicon] 本地学习数据格式异常，已忽略无法识别的字段。')
+        }
         return {
           ...current,
-          ...saved,
-          settings: { ...current.settings, ...(saved.settings ?? {}) },
-          progress: saved.progress ?? {},
-          days: saved.days ?? {},
-          personalWords: saved.personalWords ?? [],
-          currentBookId: saved.currentBookId ?? current.currentBookId,
+          settings: sanitizeSettings(saved.settings, current.settings),
+          currentBookId: sanitizeBookId(saved.currentBookId) ?? current.currentBookId,
+          progress: sanitizeProgress(saved.progress),
+          days: sanitizeDays(saved.days),
+          personalWords: sanitizePersonalWords(saved.personalWords),
         }
       },
     },

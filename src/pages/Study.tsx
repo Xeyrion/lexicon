@@ -19,6 +19,7 @@ import { PhoneticLine } from '../components/PhoneticLine'
 import { ProgressRing } from '../components/ProgressRing'
 import { useBookData } from '../hooks/useBookData'
 import { useLearningSteps } from '../hooks/useLearningSteps'
+import { useRegistry } from '../hooks/useRegistry'
 import { cardKey, useAppStore } from '../store/appStore'
 import type { GradeKey, SessionCard, SessionStage, WordBook } from '../types'
 import { buildExtraNewCards, buildQueue, bookStats, getQueuePlan } from '../lib/stats'
@@ -152,62 +153,99 @@ export default function Study() {
   const [searchParams] = useSearchParams()
   const currentBookId = useAppStore((state) => state.currentBookId)
   const setCurrentBook = useAppStore((state) => state.setCurrentBook)
-  const bookId = searchParams.get('book') || currentBookId
+  const requestedBookId = searchParams.get('book')
+  const bookId = requestedBookId || currentBookId
   const extra = Math.max(0, Number(searchParams.get('extra') ?? 0) || 0)
   const ignoreReviewCap = searchParams.get('all') === '1'
   const { book, loading, error } = useBookData(bookId)
+  const { registry } = useRegistry()
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null)
 
   useEffect(() => {
     if (bookId !== currentBookId) setCurrentBook(bookId)
   }, [bookId, currentBookId, setCurrentBook])
 
+  useEffect(() => {
+    if (requestedBookId || loading || book || error === null) return
+    if (!registry || registry.books.length === 0) return
+    if (registry.books.some((meta) => meta.id === bookId)) return
+
+    const fallback = registry.books[0]
+    if (!fallback) return
+    const timer = window.setTimeout(() => {
+      setFallbackNotice(
+        `当前词书「${bookId}」已不存在，已切换到《${fallback.nameZh}》。`,
+      )
+      setCurrentBook(fallback.id)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [book, bookId, error, loading, registry, requestedBookId, setCurrentBook])
+
+  const fallbackBanner = fallbackNotice ? (
+    <p className="mb-5 rounded-xl border border-amber/25 bg-amber-soft/60 px-4 py-3 text-xs leading-relaxed text-amber">
+      {fallbackNotice}
+    </p>
+  ) : null
+
   if (loading) {
     return (
-      <div className="animate-pulse space-y-5">
-        <div className="h-5 w-40 rounded-full bg-sunken" />
-        <div className="h-2 rounded-full bg-sunken" />
-        <div className="h-[30rem] rounded-[1.75rem] bg-sunken/70" />
-      </div>
+      <>
+        {fallbackBanner}
+        <div className="animate-pulse space-y-5">
+          <div className="h-5 w-40 rounded-full bg-sunken" />
+          <div className="h-2 rounded-full bg-sunken" />
+          <div className="h-[30rem] rounded-[1.75rem] bg-sunken/70" />
+        </div>
+      </>
     )
   }
 
   if (error || !book) {
     return (
-      <EmptyState
-        icon={BookOpen}
-        title="没有找到这本词书"
-        description={error ?? '换一本词书，或者回到首页继续。'}
-        action={
-          <Link to="/books" className="btn btn-primary">
-            打开词库
-          </Link>
-        }
-      />
+      <>
+        {fallbackBanner}
+        <EmptyState
+          icon={BookOpen}
+          title="没有找到这本词书"
+          description={error ?? '换一本词书，或者回到首页继续。'}
+          action={
+            <Link to="/books" className="btn btn-primary">
+              打开词库
+            </Link>
+          }
+        />
+      </>
     )
   }
 
   if (book.wordCount === 0) {
     return (
-      <EmptyState
-        icon={Sparkles}
-        title="我的词库还是空的"
-        description="在词库页手动添加单词，或导入 CSV / JSON，就可以开始学习了。"
-        action={
-          <Link to="/books" className="btn btn-primary">
-            去添加单词
-          </Link>
-        }
-      />
+      <>
+        {fallbackBanner}
+        <EmptyState
+          icon={Sparkles}
+          title="我的词库还是空的"
+          description="在词库页手动添加单词，或导入 CSV / JSON，就可以开始学习了。"
+          action={
+            <Link to="/books" className="btn btn-primary">
+              去添加单词
+            </Link>
+          }
+        />
+      </>
     )
   }
 
   return (
-    <StudySession
-      key={`${book.id}:${extra}:${ignoreReviewCap}:${book.words.length}`}
-      book={book}
-      extra={extra}
-      ignoreReviewCap={ignoreReviewCap}
-    />
+    <>
+      {fallbackBanner}
+      <StudySession
+        key={`${book.id}:${extra}:${ignoreReviewCap}:${book.words.length}`}
+        book={book}
+        extra={extra}
+        ignoreReviewCap={ignoreReviewCap}
+      />
+    </>
   )
 }
 

@@ -3,6 +3,11 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import type { ReaderArticle, ReaderSettings } from '../types'
 import { countWords, normalizeArticleText } from '../lib/reader'
 import { createFileBackedStorage } from '../lib/storage'
+import {
+  isPlainObject,
+  sanitizeReaderArticles,
+  sanitizeReaderSettings,
+} from '../lib/validation'
 import { useReaderProgressStore } from './readerProgressStore'
 
 const STORAGE_NAME = 'lexicon-reader-v1'
@@ -106,12 +111,14 @@ export const useReaderStore = create<ReaderState>()(
         settings: state.settings,
       }),
       merge: (persisted, current) => {
-        const saved = (persisted ?? {}) as Partial<ReaderState>
+        const saved = isPlainObject(persisted) ? persisted : {}
+        if (persisted !== undefined && !isPlainObject(persisted)) {
+          console.warn('[Lexicon] 本地阅读数据格式异常，已忽略无法识别的字段。')
+        }
         return {
           ...current,
-          ...saved,
-          articles: saved.articles ?? [],
-          settings: { ...current.settings, ...(saved.settings ?? {}) },
+          articles: sanitizeReaderArticles(saved.articles),
+          settings: sanitizeReaderSettings(saved.settings, current.settings),
         }
       },
     },

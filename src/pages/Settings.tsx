@@ -17,6 +17,11 @@ import {
 import { PageHeader } from '../components/PageHeader'
 import { speakWord } from '../lib/speech'
 import { waitForReaderHydration } from '../lib/useReaderHydrated'
+import {
+  isPlainObject,
+  sanitizeReaderArticles,
+  sanitizeReaderSettings,
+} from '../lib/validation'
 import { useAppStore } from '../store/appStore'
 import {
   articlesWithProgress,
@@ -139,52 +144,17 @@ const ACCENT_OPTIONS: { value: Accent; label: string }[] = [
 function parseReaderSnapshot(
   value: unknown,
 ): { articles: ReaderArticle[]; settings: ReaderSettings } | null {
-  if (!value || typeof value !== 'object') return null
-  const source = value as { articles?: unknown; settings?: unknown }
-  if (!Array.isArray(source.articles)) return null
+  if (!isPlainObject(value)) return null
+  if (!Array.isArray(value.articles)) return null
 
-  const articles: ReaderArticle[] = []
-  for (const item of source.articles) {
-    if (!item || typeof item !== 'object') return null
-    const article = item as Partial<ReaderArticle>
-    if (
-      typeof article.id !== 'string' ||
-      typeof article.title !== 'string' ||
-      typeof article.source !== 'string' ||
-      typeof article.text !== 'string' ||
-      typeof article.createdAt !== 'string' ||
-      typeof article.updatedAt !== 'string' ||
-      typeof article.progress !== 'number' ||
-      !Number.isFinite(article.progress) ||
-      typeof article.wordCount !== 'number' ||
-      !Number.isFinite(article.wordCount) ||
-      (article.lastReadAt !== undefined && typeof article.lastReadAt !== 'string')
-    ) {
-      return null
-    }
-    articles.push({
-      id: article.id,
-      title: article.title,
-      source: article.source,
-      text: article.text,
-      createdAt: article.createdAt,
-      updatedAt: article.updatedAt,
-      progress: Math.min(1, Math.max(0, article.progress)),
-      wordCount: Math.max(0, Math.round(article.wordCount)),
-      ...(article.lastReadAt ? { lastReadAt: article.lastReadAt } : {}),
-    })
+  const articles = sanitizeReaderArticles(value.articles)
+  // 所有文章都无法识别时，宁可拒绝导入，也不要用空阅读库覆盖现有数据。
+  if (value.articles.length > 0 && articles.length === 0) return null
+
+  return {
+    articles,
+    settings: sanitizeReaderSettings(value.settings, DEFAULT_READER_SETTINGS),
   }
-
-  const rawSettings =
-    source.settings && typeof source.settings === 'object'
-      ? (source.settings as Partial<ReaderSettings>)
-      : {}
-  const fontSize =
-    typeof rawSettings.fontSize === 'number' && Number.isFinite(rawSettings.fontSize)
-      ? Math.min(26, Math.max(16, Math.round(rawSettings.fontSize)))
-      : DEFAULT_READER_SETTINGS.fontSize
-
-  return { articles, settings: { fontSize } }
 }
 
 export default function Settings() {
@@ -547,7 +517,9 @@ export default function Settings() {
             </p>
           </div>
         </div>
-        <p className="mt-5 text-[10px] text-faint">词间 Lexicon · v0.1.0 · 数据只属于你</p>
+        <p className="mt-5 text-[10px] text-faint">
+          词间 Lexicon · v{__APP_VERSION__} · 数据只属于你
+        </p>
       </section>
     </div>
   )

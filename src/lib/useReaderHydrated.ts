@@ -43,7 +43,12 @@ export function useReaderHydrated(): boolean {
 
   useEffect(() => {
     if (hydrated) return
-    const timeout = window.setTimeout(() => setTimedOut(true), 2500)
+    const timeout = window.setTimeout(() => {
+      console.warn(
+        '[Lexicon] 阅读数据加载超过 2.5 秒，暂时以当前内容继续。请刷新页面确认数据已完整加载。',
+      )
+      setTimedOut(true)
+    }, 2500)
     return () => window.clearTimeout(timeout)
   }, [hydrated])
 

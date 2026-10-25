@@ -2,6 +2,10 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type { ReaderArticle } from '../types'
 import { createFileBackedStorage } from '../lib/storage'
+import {
+  isPlainObject,
+  sanitizeReaderProgressItems,
+} from '../lib/validation'
 
 const STORAGE_NAME = 'lexicon-reader-progress-v1'
 
@@ -83,10 +87,13 @@ export const useReaderProgressStore = create<ReaderProgressState>()(
       ),
       partialize: (state) => ({ items: state.items }),
       merge: (persisted, current) => {
-        const saved = (persisted ?? {}) as Partial<ReaderProgressState>
+        const saved = isPlainObject(persisted) ? persisted : {}
+        if (persisted !== undefined && !isPlainObject(persisted)) {
+          console.warn('[Lexicon] 本地阅读进度格式异常，已忽略无法识别的字段。')
+        }
         return {
           ...current,
-          items: saved.items ?? {},
+          items: sanitizeReaderProgressItems(saved.items),
         }
       },
     },
