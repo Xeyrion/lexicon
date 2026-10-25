@@ -28,6 +28,18 @@ interface FileInfo {
   bytes?: number
 }
 
+interface BackupKindInfo {
+  count: number
+  bytes: number
+  latest?: string
+}
+
+interface BackupInfo {
+  total: number
+  bytes: number
+  byKind: Record<Kind, BackupKindInfo>
+}
+
 function resolveDataDir(): string {
   const override = process.env.LEXICON_DATA_DIR?.trim()
   if (override) return path.resolve(override)
@@ -115,7 +127,7 @@ async function writeEnvelopeAtomic(kind: Kind, envelope: Envelope): Promise<void
   await mkdir(DATA_DIR, { recursive: true })
   const target = fileFor(kind)
   const temp = `${target}.${process.pid}.${Date.now()}.tmp`
-  await writeFile(temp, `${JSON.stringify(envelope, null, 2)}\n`, 'utf8')
+  await writeFile(temp, `${JSON.stringify(envelope)}\n`, 'utf8')
   try {
     await rename(temp, target)
   } catch (error) {
@@ -154,6 +166,56 @@ async function ensureDailyBackup(kind: Kind): Promise<void> {
     await copyFile(target, backup)
     await pruneBackups(kind)
   }
+}
+
+const BACKUP_NAME_PATTERN =
+  /^(reader-progress|reader|study)-(\d{4}-\d{2}-\d{2})\.json$/
+
+function emptyBackupInfo(): BackupInfo {
+  return {
+    total: 0,
+    bytes: 0,
+    byKind: {
+      study: { count: 0, bytes: 0 },
+      reader: { count: 0, bytes: 0 },
+      'reader-progress': { count: 0, bytes: 0 },
+    },
+  }
+}
+
+async function readBackupInfo(): Promise<BackupInfo> {
+  const info = emptyBackupInfo()
+  let names: string[]
+  try {
+    names = await readdir(BACKUP_DIR)
+  } catch {
+    // 备份目录还不存在（或暂时不可读）时按 0 处理，不影响数据状态接口。
+    return info
+  }
+
+  await Promise.all(
+    names.map(async (name) => {
+      const match = BACKUP_NAME_PATTERN.exec(name)
+      if (!match) return
+      const kind = match[1] as Kind
+      let size: number
+      try {
+        const file = await stat(path.join(BACKUP_DIR, name))
+        if (!file.isFile()) return
+        size = file.size
+      } catch {
+        return
+      }
+      const entry = info.byKind[kind]
+      entry.count += 1
+      entry.bytes += size
+      if (!entry.latest || name > entry.latest) entry.latest = name
+      info.total += 1
+      info.bytes += size
+    }),
+  )
+
+  return info
 }
 
 function withLock<T>(kind: Kind, task: () => Promise<T>): Promise<T> {
@@ -204,32 +266,44 @@ async function statusPayload(): Promise<{
   appId: string
   schemaVersion: number
   directory: string
+  backupDirectory: string
+  keepBackups: number
   files: Record<Kind, FileInfo>
+  backups: BackupInfo
 }> {
   const files = {} as Record<Kind, FileInfo>
   for (const kind of KINDS) {
+    let bytes: number
     try {
-      const info = await stat(fileFor(kind))
+      bytes = (await stat(fileFor(kind))).size
+    } catch (error) {
+      files[kind] =
+        (error as NodeJS.ErrnoException).code === 'ENOENT'
+          ? { exists: false }
+          : { exists: true }
+      continue
+    }
+    try {
       const envelope = await readEnvelope(kind)
       files[kind] = {
         exists: true,
         revision: envelope?.revision,
         updatedAt: envelope?.updatedAt,
-        bytes: info.size,
+        bytes,
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        files[kind] = { exists: false }
-      } else {
-        files[kind] = { exists: true }
-      }
+    } catch {
+      // 文件存在但内容损坏时仍返回大小，方便设置页判断磁盘占用。
+      files[kind] = { exists: true, bytes }
     }
   }
   return {
     appId: APP_ID,
     schemaVersion: SCHEMA_VERSION,
     directory: DATA_DIR,
+    backupDirectory: BACKUP_DIR,
+    keepBackups: KEEP_BACKUPS,
     files,
+    backups: await readBackupInfo(),
   }
 }
 

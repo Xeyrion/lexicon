@@ -1,4 +1,5 @@
-import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
 import {
   Check,
@@ -7,6 +8,7 @@ import {
   Info,
   Monitor,
   Moon,
+  RefreshCw,
   RotateCcw,
   Sun,
   Target,
@@ -16,6 +18,7 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { speakWord } from '../lib/speech'
+import { fetchStorageInfo, type StorageInfo, type StorageKind } from '../lib/storageInfo'
 import { waitForReaderHydration } from '../lib/useReaderHydrated'
 import {
   isPlainObject,
@@ -141,6 +144,222 @@ const ACCENT_OPTIONS: { value: Accent; label: string }[] = [
   { value: 'uk', label: '英式' },
 ]
 
+const STORAGE_FILES: { kind: StorageKind; label: string }[] = [
+  { kind: 'study', label: '学习记录' },
+  { kind: 'reader', label: '阅读库' },
+  { kind: 'reader-progress', label: '阅读进度' },
+]
+
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'] as const
+  let value = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(1)} ${units[unit]}`
+}
+
+function LocalDataInfo({
+  info,
+  loading,
+  error,
+  onRefresh,
+}: {
+  info: StorageInfo | null
+  loading: boolean
+  error: string | null
+  onRefresh: () => void
+}) {
+  return (
+    <div className="mt-6 rounded-2xl border border-line bg-paper-deep/25 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-ink">本地数据</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
+            数据文件与每日备份都保存在本机。
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-ghost text-xs disabled:opacity-50"
+          onClick={onRefresh}
+          disabled={loading}
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : undefined} />
+          {loading ? '读取中' : '刷新'}
+        </button>
+      </div>
+
+      {error && (
+        <p className="mt-3 rounded-xl border border-accent/25 bg-accent-wash px-3 py-2 text-[11px] leading-relaxed text-accent">
+          {error}
+        </p>
+      )}
+
+      {loading && !info && (
+        <p className="mt-3 text-[11px] text-faint" aria-live="polite">
+          正在读取本地数据信息…
+        </p>
+      )}
+
+      {info && (
+        <div className="mt-4 space-y-4">
+          <div className="space-y-3">
+            <div className="min-w-0">
+              <p className="kicker">数据目录</p>
+              <p className="mt-1 break-all text-[11px] leading-relaxed text-ink-soft">
+                {info.directory}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="kicker">备份目录</p>
+              <p className="mt-1 break-all text-[11px] leading-relaxed text-ink-soft">
+                {info.backupDirectory}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <p className="kicker">数据文件</p>
+            {STORAGE_FILES.some(({ kind }) => info.files[kind].exists) ? (
+              <ul className="mt-2 space-y-1.5">
+                {STORAGE_FILES.filter(({ kind }) => info.files[kind].exists).map(
+                  ({ kind, label }) => (
+                    <li
+                      key={kind}
+                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[11px]"
+                    >
+                      <span className="min-w-0 break-all text-ink-soft">
+                        {kind}.json
+                        <span className="text-faint"> · {label}</span>
+                      </span>
+                      <span className="shrink-0 tabular-nums text-ink">
+                        {formatBytes(info.files[kind].bytes ?? 0)}
+                      </span>
+                    </li>
+                  ),
+                )}
+              </ul>
+            ) : (
+              <p className="mt-2 text-[11px] text-faint">还没有生成本地数据文件。</p>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-line bg-surface/70 px-3 py-2.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
+              <span className="text-muted">备份</span>
+              <span className="tabular-nums text-ink">
+                {info.backups.total} 份 · {formatBytes(info.backups.bytes)}
+              </span>
+            </div>
+            <p className="mt-1 text-[10px] leading-relaxed text-faint">
+              默认每类最多保留 {info.keepBackups} 份，三类数据合计最多约{' '}
+              {info.keepBackups * STORAGE_FILES.length} 份。
+            </p>
+            <p className="mt-1 text-[10px] leading-relaxed text-faint">
+              学习 {info.backups.byKind.study.count} 份 · 阅读库{' '}
+              {info.backups.byKind.reader.count} 份 · 阅读进度{' '}
+              {info.backups.byKind['reader-progress'].count} 份
+            </p>
+          </div>
+
+          <p className="text-[10px] leading-relaxed text-faint">
+            清空全部数据不会删除 backups/ 目录；备份默认每类保留 {info.keepBackups} 份，如果觉得占用空间较大，可以直接到备份目录手动删除旧文件。
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResetAllDialog({
+  info,
+  onCancel,
+  onConfirm,
+}: {
+  info: StorageInfo | null
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = originalOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [onCancel])
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/35 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reset-all-title"
+        aria-describedby="reset-all-description"
+        className="w-full max-w-md rounded-[1.75rem] border border-line bg-surface p-6 shadow-[var(--shadow-float)] sm:p-7"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-wash text-accent">
+            <Trash2 size={16} strokeWidth={1.8} />
+          </span>
+          <div>
+            <h2 id="reset-all-title" className="display text-xl text-ink">
+              清除全部数据？
+            </h2>
+            <p id="reset-all-description" className="mt-1 text-xs leading-relaxed text-muted">
+              设置、学习进度、个人词库和阅读文章都会删除，且无法撤销。
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-line bg-paper-deep/30 px-4 py-3">
+          <p className="kicker">不会删除的备份</p>
+          {info ? (
+            <>
+              <p className="mt-1.5 break-all text-[11px] leading-relaxed text-ink-soft">
+                {info.backupDirectory}
+              </p>
+              <p className="mt-1 text-[11px] text-muted">
+                当前 {info.backups.total} 份，共 {formatBytes(info.backups.bytes)}。
+              </p>
+            </>
+          ) : (
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+              暂时无法读取备份信息。备份默认保存在数据目录下的 backups 文件夹，每类最多保留 30 份。
+            </p>
+          )}
+        </div>
+
+        <p className="mt-3 text-[11px] leading-relaxed text-faint">
+          清空全部数据不会删除 backups/ 目录；如果觉得备份占用空间较大，可以直接到备份目录手动删除旧文件。
+        </p>
+
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className="btn btn-secondary" onClick={onCancel} autoFocus>
+            取消
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onConfirm}>
+            <Trash2 size={14} />
+            确认清除
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 function parseReaderSnapshot(
   value: unknown,
 ): { articles: ReaderArticle[]; settings: ReaderSettings } | null {
@@ -167,7 +386,60 @@ export default function Settings() {
 
   const importRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<Message | null>(null)
-  const [confirm, setConfirm] = useState<'none' | 'progress' | 'all'>('none')
+  const [confirm, setConfirm] = useState<'none' | 'progress'>('none')
+  const [resetAllOpen, setResetAllOpen] = useState(false)
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
+  const [storageLoading, setStorageLoading] = useState(true)
+  const [storageError, setStorageError] = useState<string | null>(null)
+  const storageRequestId = useRef(0)
+
+  const loadStorageInfo = useCallback(async () => {
+    const requestId = storageRequestId.current + 1
+    storageRequestId.current = requestId
+    try {
+      const info = await fetchStorageInfo()
+      if (requestId !== storageRequestId.current) return
+      setStorageInfo(info)
+      setStorageError(null)
+    } catch (error) {
+      if (requestId !== storageRequestId.current) return
+      setStorageInfo(null)
+      setStorageError(error instanceof Error ? error.message : '读取本地数据信息失败。')
+    } finally {
+      if (requestId === storageRequestId.current) setStorageLoading(false)
+    }
+  }, [])
+
+  const refreshStorageInfo = useCallback(() => {
+    setStorageLoading(true)
+    setStorageError(null)
+    void loadStorageInfo()
+  }, [loadStorageInfo])
+
+  useEffect(() => {
+    const requestId = storageRequestId.current + 1
+    storageRequestId.current = requestId
+    let cancelled = false
+    void fetchStorageInfo().then(
+      (info) => {
+        if (cancelled || requestId !== storageRequestId.current) return
+        setStorageInfo(info)
+        setStorageError(null)
+        setStorageLoading(false)
+      },
+      (error: unknown) => {
+        if (cancelled || requestId !== storageRequestId.current) return
+        setStorageInfo(null)
+        setStorageError(error instanceof Error ? error.message : '读取本地数据信息失败。')
+        setStorageLoading(false)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const closeResetAll = useCallback(() => setResetAllOpen(false), [])
 
   const handleExport = async () => {
     if (!(await waitForReaderHydration())) {
@@ -245,10 +517,7 @@ export default function Settings() {
   }
 
   const handleResetAll = async () => {
-    if (confirm !== 'all') {
-      setConfirm('all')
-      return
-    }
+    setResetAllOpen(false)
     await resetAll()
     window.location.reload()
   }
@@ -444,6 +713,13 @@ export default function Settings() {
             />
           </div>
 
+          <LocalDataInfo
+            info={storageInfo}
+            loading={storageLoading}
+            error={storageError}
+            onRefresh={refreshStorageInfo}
+          />
+
           <div className="mt-6 space-y-3 border-t border-line pt-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -463,21 +739,30 @@ export default function Settings() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm text-ink">清除全部数据</p>
-                <p className="mt-0.5 text-[11px] text-faint">设置、进度、个人词库和阅读文章都会删除。</p>
+                <p className="mt-0.5 text-[11px] text-faint">
+                  设置、进度、个人词库和阅读文章都会删除，备份目录会保留。
+                </p>
               </div>
               <button
                 type="button"
                 className="btn btn-danger"
-                onClick={handleResetAll}
-                onBlur={() => setConfirm('none')}
+                onClick={() => setResetAllOpen(true)}
               >
                 <Trash2 size={14} />
-                {confirm === 'all' ? '再次点击确认' : '全部清除'}
+                全部清除
               </button>
             </div>
           </div>
         </Section>
       </div>
+
+      {resetAllOpen && (
+        <ResetAllDialog
+          info={storageInfo}
+          onCancel={closeResetAll}
+          onConfirm={handleResetAll}
+        />
+      )}
 
       <section className="surface-card p-6 sm:p-7">
         <div className="flex items-start gap-3">
