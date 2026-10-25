@@ -12,8 +12,8 @@ dist
 dist-ssr
 *.local
 
-# Portable data folder
-data/
+# Portable data folder (only the root-level runtime data directory)
+/data/
 
 # Editor directories and files
 .vscode/*

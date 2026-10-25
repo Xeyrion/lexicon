@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-10-23T16:44:00.693Z",
+  "sources": [
+    {
+      "name": "ECDICT",
+      "url": "https://github.com/skywind3000/ECDICT",
+      "license": "MIT"
+    },
+    {
+      "name": "ipa-dict",
+      "url": "https://github.com/open-dict-data/ipa-dict",
+      "license": "MIT"
+    }
+  ],
+  "books": [
+    {
+      "id": "cet4",
+      "name": "CET-4",
+      "nameZh": "大学英语四级",
+      "description": "四级核心词汇，按当代语料库词频排序，先学最常用的词。",
+      "level": "大学",
+      "wordCount": 3844,
+      "file": "/data/books/cet4.json"
+    },
+    {
+      "id": "cet6",
+      "name": "CET-6",
+      "nameZh": "大学英语六级",
+      "description": "六级进阶词汇，覆盖阅读、听力与写作中的高频表达。",
+      "level": "大学",
+      "wordCount": 5403,
+      "file": "/data/books/cet6.json"
+    },
+    {
+      "id": "ky",
+      "name": "考研",
+      "nameZh": "考研英语",
+      "description": "考研英语大纲词汇，按真题语料高频优先排列。",
+      "level": "进阶",
+      "wordCount": 4796,
+      "file": "/data/books/ky.json"
+    },
+    {
+      "id": "ielts",
+      "name": "IELTS",
+      "nameZh": "雅思",
+      "description": "雅思听说读写常见词汇，适合留学备考与学术表达。",
+      "level": "留学",
+      "wordCount": 5026,
+      "file": "/data/books/ielts.json"
+    },
+    {
+      "id": "toefl",
+      "name": "TOEFL",
+      "nameZh": "托福",
+      "description": "托福学术词汇，覆盖校园场景与学科主题。",
+      "level": "留学",
+      "wordCount": 6941,
+      "file": "/data/books/toefl.json"
+    },
+    {
+      "id": "oxford3000",
+      "name": "Oxford 3000",
+      "nameZh": "牛津核心三千",
+      "description": "牛津核心词表，英语世界最值得先掌握的 3000 个词。",
+      "level": "核心",
+      "wordCount": 3000,
+      "file": "/data/books/oxford3000.json"
+    }
+  ]
+}
