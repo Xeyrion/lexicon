@@ -7,8 +7,27 @@ import type { Plugin } from 'vite'
 const APP_ID = 'lexicon'
 const SCHEMA_VERSION = 1
 const KINDS = ['study', 'reader', 'reader-progress'] as const
-const MAX_BODY_BYTES = 64 * 1024 * 1024
 const KEEP_BACKUPS = 30
+const DEFAULT_MAX_IMPORT_MB = 64
+const MIN_MAX_IMPORT_MB = 8
+const MAX_MAX_IMPORT_MB = 512
+
+/**
+ * Cap for one import request body, also used by the client to reject a file
+ * before reading it into memory. Overridable with LEXICON_MAX_IMPORT_MB and
+ * clamped: too small breaks normal backups, too large lets a browser tab try to
+ * parse something it cannot hold.
+ */
+function resolveMaxImportBytes(): number {
+  const raw = process.env.LEXICON_MAX_IMPORT_MB?.trim()
+  const parsed = raw ? Number(raw) : Number.NaN
+  const mb = Number.isFinite(parsed)
+    ? Math.min(MAX_MAX_IMPORT_MB, Math.max(MIN_MAX_IMPORT_MB, Math.round(parsed)))
+    : DEFAULT_MAX_IMPORT_MB
+  return mb * 1024 * 1024
+}
+
+const MAX_BODY_BYTES = resolveMaxImportBytes()
 
 type Kind = (typeof KINDS)[number]
 

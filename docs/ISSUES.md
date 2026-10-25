@@ -293,7 +293,7 @@
 ### 42. 安全边界（低）
 - 状态：`部分修复`（导入大小已限制；鉴权与 CSP 仍是已知边界）
 - 现象：`/api/storage` 无鉴权，本机任意进程可读写；无 CSP；导入无大小限制。
-- 处理：`GET /api/storage` 返回 `maxImportBytes`（= 服务端 `MAX_BODY_BYTES`，64 MB），导入前用它判断 `file.size`，超限直接给出提示，避免 `file.text()` 先把整份文件读进内存。客户端不再自己写死阈值，两边不会漂移。
+- 处理：`GET /api/storage` 返回 `maxImportBytes`（= 服务端 `MAX_BODY_BYTES`，默认 64 MB），导入前用它判断 `file.size`，超限直接给出提示，避免 `file.text()` 先把整份文件读进内存。客户端不写死阈值，两边不会漂移。上限可用环境变量 `LEXICON_MAX_IMPORT_MB` 调整（收敛到 8–512 MB），当前值显示在「设置 → 数据 → 本地数据」底部。
 - 备注：仍无鉴权（本机任意进程可调）、无 CSP；只做了本机 Origin 校验。
 
 ## 本轮验证记录（2026-10-24）

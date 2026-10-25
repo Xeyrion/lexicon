@@ -151,6 +151,16 @@ export function LocalDataPanel({
           <p className="text-[10px] leading-relaxed text-faint">
             清空全部数据不会删除 backups/ 目录；备份默认每类保留 {info.keepBackups} 份，如果觉得占用空间较大，可以直接到备份目录手动删除旧文件。
           </p>
+
+          {typeof info.maxImportBytes === 'number' && (
+            <p className="text-[10px] leading-relaxed text-faint">
+              单次导入上限 {formatBytes(info.maxImportBytes)}，由本地服务决定；需要调整时设置环境变量{' '}
+              <code className="rounded bg-sunken px-1 py-0.5 text-[10px] text-ink-soft">
+                LEXICON_MAX_IMPORT_MB
+              </code>{' '}
+              后重启应用。
+            </p>
+          )}
         </div>
       )}
     </div>
