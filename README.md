@@ -124,6 +124,7 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 - **世界记得你**：故事可以有少量变量（`courage`、`helped_stranger`），选项能改变量、也能被变量限制（不满足时置灰并说明，不隐藏），同一节点还能按变量显示不同文本。
 - **存档**：每次选择都会保存；「撤销一步」连变量一起回滚；结局会解锁进图鉴（隐藏结局只计入总数，不显示名字）。
 - **变量写法**：`effects` 有两种——`{"var":"coins","set":true}` 赋值、`{"var":"coins","add":1}` 累加（负数即扣减）；`requires` 支持 `is` / `gte` / `lte` 和 `all` / `any` / `not` 组合。
+- **变量写法**：`effects` 有两种——`{"var":"coins","set":true}` 赋值、`{"var":"coins","add":1}` 累加（负数即扣减）；`requires` 支持 `is` / `gte` / `lte` 和 `all` / `any` / `not` 组合。
 - **自己写**：`npm run story:check <file>` 校验、`npm run story:map <file>` 看分支树，或在「故事 → 导出模板」拿一份带全部字段的模板。导入时校验不过会直接拒绝并列出问题。
 
 ## 常用脚本
