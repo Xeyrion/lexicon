@@ -8,13 +8,33 @@ import os from 'node:os'
 import { parse } from 'csv-parse'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
-const RAW_DIR = process.env.LEARNWORD_RAW_DIR ?? path.join(os.tmpdir(), 'opencode', 'learnword-data')
+// LEXICON_RAW_DIR is the current name; LEARNWORD_RAW_DIR is still accepted for compatibility.
+const RAW_DIR =
+  process.env.LEXICON_RAW_DIR ??
+  process.env.LEARNWORD_RAW_DIR ??
+  path.join(os.tmpdir(), 'opencode', 'learnword-data')
 const OUT_DIR = path.join(ROOT, 'public', 'data', 'books')
 
+// Pinned revisions: tracking master made generated data drift between runs.
+const ECDICT_COMMIT = 'ab22ad36302cafc6349a050e2b60894855208055' // ECDICT @ 2026-10-25 (pinned)
+const IPA_DICT_COMMIT = '972cd67dd5f96bc5660e28070cde26e3928abcd7' // ipa-dict @ 2026-10-25 (pinned)
+
 const SOURCES = {
-  ecdict: 'https://raw.githubusercontent.com/skywind3000/ECDICT/master/ecdict.csv',
-  ipaUS: 'https://raw.githubusercontent.com/open-dict-data/ipa-dict/master/data/en_US.txt',
-  ipaUK: 'https://raw.githubusercontent.com/open-dict-data/ipa-dict/master/data/en_UK.txt',
+  ecdict: `https://raw.githubusercontent.com/skywind3000/ECDICT/${ECDICT_COMMIT}/ecdict.csv`,
+  ipaUS: `https://raw.githubusercontent.com/open-dict-data/ipa-dict/${IPA_DICT_COMMIT}/data/en_US.txt`,
+  ipaUK: `https://raw.githubusercontent.com/open-dict-data/ipa-dict/${IPA_DICT_COMMIT}/data/en_UK.txt`,
+}
+
+function buildMeta() {
+  return {
+    sourceCommit: ECDICT_COMMIT,
+    sources: {
+      ecdict: { url: SOURCES.ecdict, commit: ECDICT_COMMIT, license: 'MIT' },
+      ipaUS: { url: SOURCES.ipaUS, commit: IPA_DICT_COMMIT, license: 'MIT' },
+      ipaUK: { url: SOURCES.ipaUK, commit: IPA_DICT_COMMIT, license: 'MIT' },
+    },
+    generatedAt: new Date().toISOString(),
+  }
 }
 
 const BOOKS = [
@@ -219,9 +239,10 @@ async function main() {
 
   await mkdir(OUT_DIR, { recursive: true })
   const registry = []
+  const meta = buildMeta()
 
   for (const book of BOOKS) {
-    const data = buildBook(book, entries, ipaUS, ipaUK)
+    const data = { ...buildBook(book, entries, ipaUS, ipaUK), meta }
     if (data.wordCount === 0) {
       console.warn(`! ${book.id} is empty, skipped`)
       continue
@@ -249,6 +270,7 @@ async function main() {
           { name: 'ipa-dict', url: 'https://github.com/open-dict-data/ipa-dict', license: 'MIT' },
         ],
         books: registry,
+        meta,
       },
       null,
       2,

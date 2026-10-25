@@ -8,13 +8,33 @@ import os from 'node:os'
 import { parse } from 'csv-parse'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
-const RAW_DIR = process.env.LEARNWORD_RAW_DIR ?? path.join(os.tmpdir(), 'opencode', 'learnword-data')
+// LEXICON_RAW_DIR is the current name; LEARNWORD_RAW_DIR is still accepted for compatibility.
+const RAW_DIR =
+  process.env.LEXICON_RAW_DIR ??
+  process.env.LEARNWORD_RAW_DIR ??
+  path.join(os.tmpdir(), 'opencode', 'learnword-data')
 const OUT_DIR = path.join(ROOT, 'public', 'data', 'reader')
 
+// Pinned revisions: tracking master made generated data drift between runs.
+const ECDICT_COMMIT = 'ab22ad36302cafc6349a050e2b60894855208055' // ECDICT @ 2026-10-25 (pinned)
+const IPA_DICT_COMMIT = '972cd67dd5f96bc5660e28070cde26e3928abcd7' // ipa-dict @ 2026-10-25 (pinned)
+
 const SOURCES = {
-  ecdict: 'https://raw.githubusercontent.com/skywind3000/ECDICT/master/ecdict.csv',
-  ipaUS: 'https://raw.githubusercontent.com/open-dict-data/ipa-dict/master/data/en_US.txt',
-  ipaUK: 'https://raw.githubusercontent.com/open-dict-data/ipa-dict/master/data/en_UK.txt',
+  ecdict: `https://raw.githubusercontent.com/skywind3000/ECDICT/${ECDICT_COMMIT}/ecdict.csv`,
+  ipaUS: `https://raw.githubusercontent.com/open-dict-data/ipa-dict/${IPA_DICT_COMMIT}/data/en_US.txt`,
+  ipaUK: `https://raw.githubusercontent.com/open-dict-data/ipa-dict/${IPA_DICT_COMMIT}/data/en_UK.txt`,
+}
+
+function buildMeta() {
+  return {
+    sourceCommit: ECDICT_COMMIT,
+    sources: {
+      ecdict: { url: SOURCES.ecdict, commit: ECDICT_COMMIT, license: 'MIT' },
+      ipaUS: { url: SOURCES.ipaUS, commit: IPA_DICT_COMMIT, license: 'MIT' },
+      ipaUK: { url: SOURCES.ipaUK, commit: IPA_DICT_COMMIT, license: 'MIT' },
+    },
+    generatedAt: new Date().toISOString(),
+  }
 }
 
 const WORD_LIMIT = 60000
@@ -657,6 +677,7 @@ async function main() {
   }
 
   await mkdir(OUT_DIR, { recursive: true })
+  const meta = buildMeta()
   const lexicon = {
     generatedAt: new Date().toISOString(),
     sources: [
@@ -665,6 +686,7 @@ async function main() {
     ],
     words: words.map((word) => wordTuple(word, ipaUS, ipaUK)),
     aliases,
+    meta,
   }
   const phraseData = {
     generatedAt: new Date().toISOString(),
@@ -676,6 +698,7 @@ async function main() {
       phrase.tags,
       phrase.rank,
     ]),
+    meta,
   }
 
   await writeFile(path.join(OUT_DIR, 'lexicon.json'), JSON.stringify(lexicon))

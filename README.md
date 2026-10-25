@@ -70,12 +70,14 @@ npm run dev          # 启动开发服务器（同时提供本地数据接口）
 npm run build        # 类型检查并构建到 dist/
 npm run preview      # 预览已构建的版本
 npm run lint         # oxlint
+npm test             # Vitest（校验器与备份解析的纯函数测试）
+npm run test:watch   # Vitest 监听模式
 npm run dicts        # 重建 public/data/books 词书数据（需要网络）
 npm run reader-data  # 重建 public/data/reader 阅读词典数据（需要网络）
 npm run icons        # 重新生成 PWA 图标
 ```
 
-`dicts` 和 `reader-data` 会从 ECDICT 与 ipa-dict 拉取源数据，耗时取决于网络；生成结果在 `public/data/`。脚本也支持通过旧的 `LEARNWORD_RAW_DIR` 环境变量复用本地原始数据缓存。
+`dicts` 和 `reader-data` 会从 ECDICT 与 ipa-dict 拉取源数据（版本已固定到具体 commit，产物可复现），耗时取决于网络；生成结果在 `public/data/`。脚本也支持通过 `LEXICON_RAW_DIR` 环境变量复用本地原始数据缓存（旧名 `LEARNWORD_RAW_DIR` 仍兼容，新名优先）。
 
 ## 故障排查
 
