@@ -16,18 +16,8 @@ import {
   readingMinutes,
 } from '../../lib/reader'
 import { useArticleDraft, type ArticleDraft } from '../../hooks/useArticleDraft'
+import { SAMPLE_ARTICLE } from '../../lib/sampleArticle'
 import { useReaderStore } from '../../store/readerStore'
-
-const SAMPLE = {
-  title: 'The Quiet Practice of Noticing',
-  body: `In the age of constant notification, attention has become a scarce resource. We move through the day with our eyes fixed on screens, answering messages before we have finished a thought. Yet the world is still there, waiting to be noticed.
-
-A short walk without headphones can change the texture of an afternoon. You hear the dry leaves, the distant train, the pause between two conversations. You see how light falls across a wall. None of this is useful in the ordinary sense, and that is precisely the point.
-
-Noticing is not the same as concentration. Concentration is a task; noticing is a mood. It asks us to look forward to the unknown rather than rush past it. In spite of its quietness, it can make a day feel larger.
-
-Try it for ten minutes. Leave the phone in your pocket. Let one thing surprise you.`,
-}
 
 interface ArticleComposerProps {
   article?: ReaderArticle
@@ -104,8 +94,8 @@ export function ArticleComposer({ article, onSave, onCancel }: ArticleComposerPr
   }
 
   const loadSample = () => {
-    setTitle(SAMPLE.title)
-    setText(SAMPLE.body)
+    setTitle(SAMPLE_ARTICLE.title)
+    setText(SAMPLE_ARTICLE.body)
     setSource('示例文章')
     setError(null)
   }

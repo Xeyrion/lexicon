@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Check,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { BackupPanel } from '../components/settings/BackupPanel'
+import { HealthPanel } from '../components/settings/HealthPanel'
 import { LocalDataPanel } from '../components/settings/LocalDataPanel'
 import {
   ImportLimitDialog,
@@ -25,6 +26,7 @@ import {
 } from '../components/settings/dialogs'
 import { Section, Segmented, Toggle } from '../components/settings/primitives'
 import { useStorageData } from '../hooks/useStorageData'
+import { inspectStudyData } from '../lib/health'
 import { speakWord } from '../lib/speech'
 import { useAppStore } from '../store/appStore'
 import type { Accent, ThemeMode } from '../types'
@@ -45,6 +47,9 @@ export default function Settings() {
   const setSetting = useAppStore((state) => state.setSetting)
   const resetProgress = useAppStore((state) => state.resetProgress)
   const resetAll = useAppStore((state) => state.resetAll)
+  const progress = useAppStore((state) => state.progress)
+  const days = useAppStore((state) => state.days)
+  const clockIssues = useMemo(() => inspectStudyData(progress, days), [progress, days])
   const {
     message,
     setMessage,
@@ -295,6 +300,7 @@ export default function Settings() {
             onChangeLimit={requestLimitChange}
             limitBusy={limitBusy}
           />
+          <HealthPanel issues={clockIssues} />
           <BackupPanel
             list={backupList}
             loading={backupLoading}

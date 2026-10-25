@@ -4,16 +4,24 @@ import { splitParagraphs, tokenizeParagraph } from '../../lib/reader'
 /** Title tokens live in their own pseudo-paragraph so anchors never collide. */
 export const TITLE_PARAGRAPH = -1
 
+interface TokenPosition {
+  paragraph: number
+  token: number
+}
+
 interface ReaderTextProps {
   text: string
   fontSize: number
-  activeToken: { paragraph: number; token: number } | null
+  activeToken: TokenPosition | null
+  /** Keyboard cursor; separate from activeToken so the two never fight. */
+  focusToken?: TokenPosition | null
 }
 
 export const ReaderText = memo(function ReaderText({
   text,
   fontSize,
   activeToken,
+  focusToken = null,
 }: ReaderTextProps) {
   const paragraphs = useMemo(
     () => splitParagraphs(text).map((paragraph) => tokenizeParagraph(paragraph)),
@@ -30,13 +38,17 @@ export const ReaderText = memo(function ReaderText({
             }
             const active =
               activeToken?.paragraph === paragraphIndex && activeToken.token === tokenIndex
+            const focused =
+              focusToken?.paragraph === paragraphIndex && focusToken.token === tokenIndex
             return (
               <span
                 key={tokenIndex}
                 data-word={token.text}
                 data-paragraph={paragraphIndex}
                 data-token={tokenIndex}
-                className={`reader-word${active ? ' reader-word-active' : ''}`}
+                className={`reader-word${active ? ' reader-word-active' : ''}${
+                  focused ? ' reader-word-focus' : ''
+                }`}
               >
                 {token.text}
               </span>
@@ -55,9 +67,11 @@ export const ReaderText = memo(function ReaderText({
 export const ReaderTitle = memo(function ReaderTitle({
   text,
   activeToken,
+  focusToken = null,
 }: {
   text: string
-  activeToken: { paragraph: number; token: number } | null
+  activeToken: TokenPosition | null
+  focusToken?: TokenPosition | null
 }) {
   const tokens = useMemo(() => tokenizeParagraph(text), [text])
 
@@ -69,13 +83,17 @@ export const ReaderTitle = memo(function ReaderTitle({
         }
         const active =
           activeToken?.paragraph === TITLE_PARAGRAPH && activeToken.token === tokenIndex
+        const focused =
+          focusToken?.paragraph === TITLE_PARAGRAPH && focusToken.token === tokenIndex
         return (
           <span
             key={tokenIndex}
             data-word={token.text}
             data-paragraph={TITLE_PARAGRAPH}
             data-token={tokenIndex}
-            className={`reader-word${active ? ' reader-word-active' : ''}`}
+            className={`reader-word${active ? ' reader-word-active' : ''}${
+              focused ? ' reader-word-focus' : ''
+            }`}
           >
             {token.text}
           </span>

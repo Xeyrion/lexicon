@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from 'react'
@@ -271,6 +272,9 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
 
   const [panelQuery, setPanelQuery] = useState<ReaderPanelQuery | null>(null)
   const [activeToken, setActiveToken] = useState<{ paragraph: number; token: number } | null>(null)
+  const [focusToken, setFocusToken] = useState<
+    { paragraph: number; token: number; word: string } | null
+  >(null)
   const [hover, setHover] = useState<HoverState | null>(null)
   const [selectionAction, setSelectionAction] = useState<SelectionState | null>(null)
   const panelOpen = panelQuery !== null
@@ -472,7 +476,63 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
     if (!raw) return
     const paragraph = Number(target.dataset.paragraph)
     const token = Number(target.dataset.token)
+    setFocusToken({ paragraph, token, word: raw })
     openWord(raw, { paragraph, token })
+  }
+
+  /** Moves the keyboard cursor one word at a time, in DOM order. */
+  const moveFocus = useCallback(
+    (delta: number) => {
+      const container = articleRef.current
+      if (!container) return
+      const words = [...container.querySelectorAll<HTMLElement>('[data-word]')]
+      if (words.length === 0) return
+      const current = focusToken
+        ? words.findIndex(
+            (word) =>
+              Number(word.dataset.paragraph) === focusToken.paragraph &&
+              Number(word.dataset.token) === focusToken.token,
+          )
+        : -1
+      const next =
+        current < 0
+          ? delta > 0
+            ? 0
+            : words.length - 1
+          : Math.min(words.length - 1, Math.max(0, current + delta))
+      const element = words[next]
+      const paragraph = Number(element.dataset.paragraph)
+      const token = Number(element.dataset.token)
+      setFocusToken({ paragraph, token, word: element.dataset.word ?? '' })
+      element.scrollIntoView({ block: 'nearest' })
+    },
+    [focusToken],
+  )
+
+  const handleArticleFocus = useCallback(() => {
+    if (focusToken) return
+    const container = articleRef.current
+    if (!container) return
+    const anchor = readAnchor(container)
+    if (!anchor) return
+    const element = container.querySelector<HTMLElement>(
+      `[data-paragraph="${anchor.paragraph}"][data-token="${anchor.token}"]`,
+    )
+    setFocusToken({ ...anchor, word: element?.dataset.word ?? '' })
+  }, [focusToken])
+
+  const handleArticleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      // Let the page keep vertical scrolling; only hijack the horizontal keys.
+      event.preventDefault()
+      moveFocus(event.key === 'ArrowRight' ? 1 : -1)
+      return
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      if (!focusToken) return
+      event.preventDefault()
+      openWord(focusToken.word, { paragraph: focusToken.paragraph, token: focusToken.token })
+    }
   }
 
   const handleMouseUp = () => {
@@ -548,17 +608,28 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
       <div className="grid gap-8 pt-8 lg:grid-cols-[minmax(0,1fr)_320px]">
         <article
           ref={articleRef}
-          className="surface-card px-6 py-10 sm:px-10 lg:px-14"
+          className="reader-surface surface-card px-6 py-10 sm:px-10 lg:px-14"
+          tabIndex={0}
+          aria-label="文章正文。左右方向键在单词间移动，回车查看释义，Esc 关闭词条。"
+          onFocus={handleArticleFocus}
+          onKeyDown={handleArticleKeyDown}
           onMouseOver={handleMouseOver}
           onMouseOut={handleMouseOut}
           onMouseUp={handleMouseUp}
           onClick={handleClick}
         >
+          <span className="sr-only" aria-live="polite">
+            {focusToken ? `当前单词：${focusToken.word}` : ''}
+          </span>
           <div className="mx-auto max-w-[42rem]">
             <header className="border-b border-line pb-8">
               <p className="kicker">Reading</p>
               <h1 className="display mt-3 text-[2.2rem] leading-[1.08] text-ink sm:text-[2.8rem]">
-                <ReaderTitle text={article.title} activeToken={activeToken} />
+                <ReaderTitle
+                  text={article.title}
+                  activeToken={activeToken}
+                  focusToken={focusToken}
+                />
               </h1>
               <p className="mt-4 text-[11px] text-faint">
                 {article.source} · {article.wordCount.toLocaleString('zh-CN')} 词 ·{' '}
@@ -567,6 +638,9 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
               </p>
               <p className="mt-3 text-[11px] leading-relaxed text-faint sm:hidden">
                 轻点单词查看释义，长按选择多个词查短语。
+              </p>
+              <p className="mt-3 hidden text-[11px] leading-relaxed text-faint sm:block">
+                点击单词查看释义，拖选多个词查短语；用 Tab 进入正文后，方向键选词、回车查词。
               </p>
             </header>
 
@@ -595,7 +669,12 @@ function ReaderView({ article, fromStart }: { article: ReaderArticle; fromStart:
             )}
 
             <div className="pt-8">
-              <ReaderText text={article.text} fontSize={fontSize} activeToken={activeToken} />
+              <ReaderText
+                text={article.text}
+                fontSize={fontSize}
+                activeToken={activeToken}
+                focusToken={focusToken}
+              />
             </div>
 
             <footer className="mt-12 flex items-center gap-3 border-t border-line pt-5 text-[10px] text-faint">

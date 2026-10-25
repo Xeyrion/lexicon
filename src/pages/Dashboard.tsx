@@ -1,15 +1,17 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ArrowRight,
   BookOpen,
   CalendarDays,
   ChevronRight,
+  FileText,
   Flame,
   Sparkles,
   Target,
   Volume2,
+  X,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { BookCard } from '../components/BookCard'
 import { BookCover } from '../components/BookCover'
 import { EmptyState } from '../components/EmptyState'
@@ -29,9 +31,22 @@ import {
   reviewWordsForDay,
   todayIndex,
 } from '../lib/date'
+import { SAMPLE_ARTICLE } from '../lib/sampleArticle'
 import { speakWord } from '../lib/speech'
 import { accuracy, bookStats, getQueuePlan } from '../lib/stats'
+import { useReaderHydrated } from '../lib/useReaderHydrated'
 import { useAppStore } from '../store/appStore'
+import { useReaderStore } from '../store/readerStore'
+
+const ONBOARD_DISMISS_KEY = 'lexicon:onboard:dismissed'
+
+function readOnboardDismissed(): boolean {
+  try {
+    return window.sessionStorage.getItem(ONBOARD_DISMISS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 function DashboardSkeleton() {
   return (
@@ -48,6 +63,7 @@ function DashboardSkeleton() {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const settings = useAppStore((state) => state.settings)
   const currentBookId = useAppStore((state) => state.currentBookId)
   const progress = useAppStore((state) => state.progress)
@@ -55,6 +71,9 @@ export default function Dashboard() {
   const setCurrentBook = useAppStore((state) => state.setCurrentBook)
   const { book, loading, error } = useBookData(currentBookId)
   const { registry } = useRegistry()
+  const readerHydrated = useReaderHydrated()
+  const articleCount = useReaderStore((state) => state.articles.length)
+  const [onboardDismissed, setOnboardDismissed] = useState(readOnboardDismissed)
 
   const today = days[dateKey()]
   const streak = getStreak(days)
@@ -125,6 +144,27 @@ export default function Dashboard() {
           ? '换一本词书'
           : '再学一组'
 
+  const showOnboarding =
+    stats.learned === 0 && articleCount === 0 && readerHydrated && !onboardDismissed
+
+  const dismissOnboarding = () => {
+    setOnboardDismissed(true)
+    try {
+      window.sessionStorage.setItem(ONBOARD_DISMISS_KEY, '1')
+    } catch {
+      // 隐私模式下写不进去，本页内关掉即可。
+    }
+  }
+
+  const openSampleArticle = () => {
+    const article = useReaderStore.getState().createArticle({
+      title: SAMPLE_ARTICLE.title,
+      text: SAMPLE_ARTICLE.body,
+      source: '示例文章',
+    })
+    navigate(`/read/${article.id}`)
+  }
+
   return (
     <div className="space-y-8">
       <header className="fade-up flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -141,6 +181,88 @@ export default function Dashboard() {
           </span>
         </div>
       </header>
+
+      {showOnboarding && (
+        <section
+          className="fade-up surface-card relative overflow-hidden p-6 sm:p-8"
+          aria-labelledby="onboarding-title"
+          style={{ animationDelay: '40ms' }}
+        >
+          <div className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 rounded-full bg-accent/5 blur-2xl" />
+          <button
+            type="button"
+            className="icon-button absolute right-4 top-4"
+            onClick={dismissOnboarding}
+            aria-label="关闭新手指引"
+          >
+            <X size={16} strokeWidth={1.8} />
+          </button>
+          <div className="relative">
+            <p className="kicker">Getting started · 从这里开始</p>
+            <h2
+              id="onboarding-title"
+              className="display mt-3 text-[1.7rem] leading-[1.15] text-ink sm:text-[2rem]"
+            >
+              三步，先跑通一遍。
+            </h2>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
+              选一本词书，学第一组词，再读一篇示例文章。数据都保存在本地，不需要注册。
+            </p>
+            <ol className="mt-6 space-y-3">
+              <li className="flex flex-col gap-3 rounded-2xl border border-line bg-paper-deep/35 px-4 py-3.5 sm:flex-row sm:items-center">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sunken text-[11px] font-medium text-ink-soft">
+                  1
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink">选一本词书</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
+                    内置 6 本，从四级到牛津 3000，随时可以换。
+                  </p>
+                </div>
+                <Link to="/books" className="btn btn-secondary shrink-0">
+                  去词库
+                </Link>
+              </li>
+              <li className="flex flex-col gap-3 rounded-2xl border border-line bg-paper-deep/35 px-4 py-3.5 sm:flex-row sm:items-center">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sunken text-[11px] font-medium text-ink-soft">
+                  2
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink">学第一组词</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
+                    从《{book.nameZh}》先学 10 个，进度会自动保存。
+                  </p>
+                </div>
+                <Link to={`/study?book=${book.id}&extra=10`} className="btn btn-secondary shrink-0">
+                  开始学习
+                </Link>
+              </li>
+              <li className="flex flex-col gap-3 rounded-2xl border border-line bg-paper-deep/35 px-4 py-3.5 sm:flex-row sm:items-center">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sunken text-[11px] font-medium text-ink-soft">
+                  3
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink">读一篇示例文章</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
+                    点一下直接建好并打开，边读边查词。
+                  </p>
+                </div>
+                <button type="button" className="btn btn-primary shrink-0" onClick={openSampleArticle}>
+                  <FileText size={15} strokeWidth={1.8} />
+                  读示例
+                </button>
+              </li>
+            </ol>
+            <button
+              type="button"
+              className="mt-5 text-[11px] text-faint transition-colors hover:text-accent"
+              onClick={dismissOnboarding}
+            >
+              知道了，先自己看看
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="fade-up grid gap-5 lg:grid-cols-[1.55fr_1fr]" style={{ animationDelay: '60ms' }}>
         <div className="surface-card relative overflow-hidden p-6 sm:p-8">

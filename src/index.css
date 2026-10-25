@@ -37,8 +37,10 @@
   --surface-muted: #eee8dc;
   --ink: #1c1a17;
   --ink-soft: #3c362e;
-  --muted: #70675a;
-  --faint: #a09585;
+  /* Contrast on --paper: ink 16:1, ink-soft 10.6:1, muted 6.3:1, faint 4.6:1.
+     faint used to be #a09585 (2.6:1) and carried 10-11px hints, which failed AA. */
+  --muted: #5f574c;
+  --faint: #776c5e;
   --line: #ded4c4;
   --line-strong: #c8bcaa;
   --accent: #c1442e;
@@ -67,7 +69,7 @@
   --ink: #f2eadc;
   --ink-soft: #ded3c2;
   --muted: #a89b89;
-  --faint: #776c5e;
+  --faint: #8b8072;
   --line: #332d26;
   --line-strong: #4a4035;
   --accent: #e06a4f;
@@ -432,6 +434,18 @@ button:disabled {
   .reader-word:hover {
     background: var(--accent-wash);
   }
+}
+
+.reader-word-focus {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent);
+  color: var(--ink);
+}
+
+/* The article is a single tab stop; keep the ring visible for keyboard users. */
+.reader-surface:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .reader-word-active {
