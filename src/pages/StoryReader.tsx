@@ -1,5 +1,12 @@
-import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import { ArrowLeft, ArrowRight, RotateCcw, Undo2 } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
+import { ArrowLeft, ArrowRight, Pause, Play, RotateCcw, Square, Undo2 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { InlineWords, ReaderText } from '../components/reader/ReaderText'
@@ -7,6 +14,13 @@ import { WordPanel } from '../components/reader/WordPanel'
 import { LIGHTHOUSE_STORY } from '../data/lighthouse'
 import { useReaderDictionary } from '../hooks/useReaderDictionary'
 import { findNode, isChoiceAvailable, resolveNodeText } from '../lib/story'
+import {
+  englishVoices,
+  listVoices,
+  speakPassage,
+  splitSentences,
+  type PassageController,
+} from '../lib/speech'
 import { useAppStore } from '../store/appStore'
 import { useStoryStore } from '../store/storyStore'
 import { useReaderStore } from '../store/readerStore'
@@ -48,6 +62,10 @@ export default function StoryReader() {
 
   const [panelQuery, setPanelQuery] = useState<string | null>(null)
   const [activeToken, setActiveToken] = useState<{ paragraph: number; token: number } | null>(null)
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null)
+  const [paused, setPaused] = useState(false)
+  const [voiceMissing, setVoiceMissing] = useState(false)
+  const playerRef = useRef<PassageController | null>(null)
 
   const story = useMemo(
     () => [LIGHTHOUSE_STORY, ...imported].find((item) => item.id === storyId),
@@ -56,6 +74,62 @@ export default function StoryReader() {
   const save = story ? saves[story.id] : undefined
   const storyMeta = story ? meta[story.id] : undefined
   const node = story && save ? findNode(story, save.nodeId) : undefined
+
+  const nodeText = node && save ? resolveNodeText(node, save.vars) : ''
+  const sentences = splitSentences(nodeText)
+
+  const stopSpeaking = useCallback(() => {
+    playerRef.current?.stop()
+    playerRef.current = null
+    setSpeakingIndex(null)
+    setPaused(false)
+  }, [])
+
+  // Changing node or leaving the page must not keep talking. Cleanup only, so
+  // this never sets state during render/effect.
+  useEffect(() => {
+    return () => {
+      playerRef.current?.stop()
+      playerRef.current = null
+    }
+  }, [node?.id])
+
+  const startSpeaking = async () => {
+    const voices = await listVoices()
+    if (englishVoices(voices).length === 0) {
+      setVoiceMissing(true)
+      return
+    }
+    setVoiceMissing(false)
+    setPaused(false)
+    playerRef.current = speakPassage(nodeText, {
+      accent,
+      rate,
+      onSentence: (index) => setSpeakingIndex(index),
+      onEnd: () => {
+        setSpeakingIndex(null)
+        setPaused(false)
+      },
+      onUnavailable: () => {
+        setSpeakingIndex(null)
+        setVoiceMissing(true)
+      },
+    })
+  }
+
+  const toggleSpeaking = () => {
+    if (speakingIndex === null) {
+      void startSpeaking()
+      return
+    }
+    if (paused) {
+      playerRef.current?.resume()
+      setPaused(false)
+    } else {
+      playerRef.current?.pause()
+      setPaused(true)
+    }
+  }
 
   const panel = useMemo<ReaderLookup | null>(() => {
     if (!panelQuery) return null
@@ -168,15 +242,54 @@ export default function StoryReader() {
 
       {save && node && (
         <>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary text-xs"
+              onClick={toggleSpeaking}
+              aria-label={speakingIndex === null ? '朗读这一段' : paused ? '继续朗读' : '暂停朗读'}
+            >
+              {speakingIndex !== null && !paused ? <Pause size={14} /> : <Play size={14} />}
+              {speakingIndex === null ? '朗读' : paused ? '继续' : '暂停'}
+            </button>
+            {speakingIndex !== null && (
+              <button
+                type="button"
+                className="btn btn-ghost text-xs"
+                onClick={stopSpeaking}
+                aria-label="停止朗读"
+              >
+                <Square size={12} />
+                停止
+              </button>
+            )}
+            {speakingIndex !== null && sentences[speakingIndex] && (
+              <span className="text-[10px] tabular-nums text-faint">
+                {speakingIndex + 1} / {sentences.length}
+              </span>
+            )}
+          </div>
+
+          {voiceMissing && (
+            <p className="rounded-xl border border-accent/25 bg-accent-wash px-4 py-3 text-[11px] leading-relaxed text-accent">
+              系统里没有英文语音，朗读用不了（现在也不会拿中文语音去念英文）。Windows：设置 →
+              时间和语言 → 语音 → 添加语音 → English (United States)。macOS：系统设置 →
+              辅助功能 → 朗读内容 → 系统声音 → 管理声音。
+            </p>
+          )}
+
           <article
             className="surface-card px-6 py-8 sm:px-10 sm:py-10"
             onClick={handleClick}
           >
             <div className="mx-auto max-w-[42rem]">
               <ReaderText
-                text={resolveNodeText(node, save.vars)}
+                text={nodeText}
                 fontSize={fontSize}
                 activeToken={activeToken}
+                highlightText={
+                  speakingIndex !== null ? (sentences[speakingIndex]?.text ?? null) : null
+                }
               />
             </div>
           </article>

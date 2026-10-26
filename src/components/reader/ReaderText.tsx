@@ -15,6 +15,8 @@ interface ReaderTextProps {
   activeToken: TokenPosition | null
   /** Keyboard cursor; separate from activeToken so the two never fight. */
   focusToken?: TokenPosition | null
+  /** Exact sentence to highlight, e.g. the one currently being read aloud. */
+  highlightText?: string | null
 }
 
 export const ReaderText = memo(function ReaderText({
@@ -22,6 +24,7 @@ export const ReaderText = memo(function ReaderText({
   fontSize,
   activeToken,
   focusToken = null,
+  highlightText = null,
 }: ReaderTextProps) {
   const paragraphs = useMemo(
     () => splitParagraphs(text).map((paragraph) => tokenizeParagraph(paragraph)),
@@ -30,11 +33,27 @@ export const ReaderText = memo(function ReaderText({
 
   return (
     <div className="reader-prose" style={{ fontSize, lineHeight: 1.9 }}>
-      {paragraphs.map((tokens, paragraphIndex) => (
+      {paragraphs.map((tokens, paragraphIndex) => {
+        // Sentences never cross a paragraph break, so matching inside the
+        // rendered paragraph is exact - no cross-paragraph offset math.
+        const paragraphText = tokens.map((token) => token.text).join('')
+        const hitStart = highlightText ? paragraphText.indexOf(highlightText) : -1
+        const hitEnd = hitStart >= 0 && highlightText ? hitStart + highlightText.length : -1
+        let offset = 0
+
+        return (
         <p key={paragraphIndex} className="reader-paragraph">
           {tokens.map((token, tokenIndex) => {
+            const start = offset
+            offset += token.text.length
+            const inSentence = hitStart >= 0 && start < hitEnd && offset > hitStart
+
             if (token.type === 'text') {
-              return <span key={tokenIndex}>{token.text}</span>
+              return (
+                <span key={tokenIndex} className={inSentence ? 'reader-sentence' : undefined}>
+                  {token.text}
+                </span>
+              )
             }
             const active =
               activeToken?.paragraph === paragraphIndex && activeToken.token === tokenIndex
@@ -48,14 +67,15 @@ export const ReaderText = memo(function ReaderText({
                 data-token={tokenIndex}
                 className={`reader-word${active ? ' reader-word-active' : ''}${
                   focused ? ' reader-word-focus' : ''
-                }`}
+                }${inSentence ? ' reader-sentence' : ''}`}
               >
                 {token.text}
               </span>
             )
           })}
         </p>
-      ))}
+        )
+      })}
     </div>
   )
 })

@@ -3,6 +3,8 @@ import type { Accent } from '../types'
 export interface SpeechOptions {
   accent: Accent
   rate?: number
+  /** Overrides the saved preference; used by the settings preview. */
+  voiceURI?: string | null
 }
 
 export interface SpeechProvider {
@@ -58,7 +60,44 @@ function waitForVoices(timeout = 1200): Promise<SpeechSynthesisVoice[]> {
   })
 }
 
-function pickVoice(voices: SpeechSynthesisVoice[], accent: Accent): SpeechSynthesisVoice | undefined {
+const VOICE_PREF_KEY = 'lexicon:voice-uri'
+
+export function getPreferredVoiceURI(): string | null {
+  try {
+    return window.localStorage.getItem(VOICE_PREF_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setPreferredVoiceURI(uri: string | null): void {
+  try {
+    if (uri) window.localStorage.setItem(VOICE_PREF_KEY, uri)
+    else window.localStorage.removeItem(VOICE_PREF_KEY)
+  } catch {
+    // Private mode: the preference just will not stick.
+  }
+}
+
+/** English voices only; everything else would read English with wrong phonetics. */
+export function englishVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+  return voices.filter((voice) => voice.lang.toLowerCase().startsWith('en'))
+}
+
+/** Waits for the browser's lazily populated voice list. */
+export function listVoices(): Promise<SpeechSynthesisVoice[]> {
+  return waitForVoices()
+}
+
+function pickVoice(
+  voices: SpeechSynthesisVoice[],
+  accent: Accent,
+  preferredURI?: string | null,
+): SpeechSynthesisVoice | undefined {
+  if (preferredURI) {
+    const preferred = voices.find((voice) => voice.voiceURI === preferredURI)
+    if (preferred) return preferred
+  }
   const lang = accent === 'us' ? 'en-us' : 'en-gb'
   const english = voices.filter((voice) => voice.lang.toLowerCase().startsWith('en'))
   const matching = english.filter((voice) => voice.lang.toLowerCase().replace('_', '-').startsWith(lang))
@@ -88,10 +127,17 @@ class WebSpeechProvider implements SpeechProvider {
     synth.cancel()
 
     const voices = await waitForVoices()
-    const voice = pickVoice(voices, options.accent)
+    const voice = pickVoice(
+      voices,
+      options.accent,
+      options.voiceURI === undefined ? getPreferredVoiceURI() : options.voiceURI,
+    )
+    // No English voice means a Chinese voice would read English with the wrong
+    // phonetics. Staying silent is the honest failure.
+    if (!voice) return
     const utterance = new SpeechSynthesisUtterance(text)
-    if (voice) utterance.voice = voice
-    utterance.lang = voice?.lang ?? (options.accent === 'us' ? 'en-US' : 'en-GB')
+    utterance.voice = voice
+    utterance.lang = voice.lang
     utterance.rate = Math.min(1.5, Math.max(0.5, options.rate ?? 1))
     utterance.pitch = 1
 
@@ -118,4 +164,145 @@ export const speech: SpeechProvider = new WebSpeechProvider()
 
 export function speakWord(word: string, accent: Accent, rate: number): Promise<void> {
   return speech.speak(word, { accent, rate }).catch(() => undefined)
+}
+
+export interface Sentence {
+  text: string
+  start: number
+  end: number
+}
+
+/** Intl.Segmenter still breaks after these, which makes TTS pause mid-phrase. */
+const ABBREVIATION_END = /\b(mr|mrs|ms|dr|prof|st|jr|sr|vs|etc|no|fig|vol|e\.g|i\.e)\.$/i
+
+/**
+ * Sentence boundaries for karaoke-style highlighting. Uses Intl.Segmenter when
+ * available and falls back to punctuation; both are post-processed so that
+ * "Mr." or "e.g." does not become its own utterance.
+ */
+export function splitSentences(text: string): Sentence[] {
+  const source = text.replace(/\r\n?/g, '\n')
+  const sentences: Sentence[] = []
+
+  const push = (segment: string, index: number) => {
+    const trimmed = segment.trim()
+    if (!trimmed) return
+    const lead = segment.length - segment.trimStart().length
+    sentences.push({
+      text: trimmed,
+      start: index + lead,
+      end: index + lead + trimmed.length,
+    })
+  }
+
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' })
+    for (const part of segmenter.segment(source)) push(part.segment, part.index)
+  } else {
+    const pattern = /[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(source)) !== null) push(match[0], match.index)
+  }
+
+  // Merge an abbreviation back into the sentence that follows it. The text is
+  // re-sliced from the source so it still matches exactly for highlighting.
+  const merged: Sentence[] = []
+  for (const sentence of sentences) {
+    const previous = merged[merged.length - 1]
+    if (previous && ABBREVIATION_END.test(previous.text)) {
+      merged[merged.length - 1] = {
+        text: source.slice(previous.start, sentence.end).trim(),
+        start: previous.start,
+        end: sentence.end,
+      }
+      continue
+    }
+    merged.push(sentence)
+  }
+
+  return merged
+}
+
+export interface PassageOptions {
+  accent: Accent
+  rate?: number
+  voiceURI?: string | null
+  /** Index of the sentence being spoken, or null when nothing is playing. */
+  onSentence?: (index: number | null) => void
+  onEnd?: () => void
+  /** No English voice available: the caller should explain how to install one. */
+  onUnavailable?: () => void
+}
+
+export interface PassageController {
+  stop: () => void
+  pause: () => void
+  resume: () => void
+}
+
+/**
+ * Reads a passage sentence by sentence. One utterance per sentence keeps the
+ * engine's per-utterance length limits out of the picture and makes the
+ * highlight exact - the boundary event is not reliable across engines.
+ */
+export function speakPassage(text: string, options: PassageOptions): PassageController {
+  const synth = typeof window === 'undefined' ? null : window.speechSynthesis
+  const sentences = splitSentences(text)
+  let stopped = false
+
+  const stop = () => {
+    stopped = true
+    if (synth) synth.cancel()
+    options.onSentence?.(null)
+  }
+
+  const run = async () => {
+    if (!synth) return
+    if (sentences.length === 0) {
+      options.onEnd?.()
+      return
+    }
+
+    const voices = await waitForVoices()
+    const voice = pickVoice(
+      voices,
+      options.accent,
+      options.voiceURI === undefined ? getPreferredVoiceURI() : options.voiceURI,
+    )
+    if (!voice) {
+      stopped = true
+      options.onSentence?.(null)
+      options.onUnavailable?.()
+      return
+    }
+
+    for (let index = 0; index < sentences.length; index += 1) {
+      if (stopped) return
+      await new Promise<void>((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(sentences[index].text)
+        utterance.voice = voice
+        utterance.lang = voice.lang
+        utterance.rate = Math.min(1.5, Math.max(0.5, options.rate ?? 1))
+        utterance.pitch = 1
+        utterance.onstart = () => options.onSentence?.(index)
+        utterance.onend = () => resolve()
+        utterance.onerror = () => resolve()
+        synth.speak(utterance)
+      })
+    }
+
+    if (!stopped) {
+      options.onSentence?.(null)
+      options.onEnd?.()
+    }
+  }
+
+  if (synth) synth.cancel()
+  void run()
+
+  return {
+    stop,
+    pause: () => synth?.pause(),
+    resume: () => synth?.resume(),
+  }
 }

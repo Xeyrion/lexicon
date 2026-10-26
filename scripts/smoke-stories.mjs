@@ -134,6 +134,39 @@ try {
     }))
   }
 
+  // 4a. The read-aloud button exists and degrades visibly without a voice.
+  // Headless Chrome has no TTS voices, so this normally exercises the notice.
+  await page.goto(`${base}/#/stories/the-lighthouse`, { waitUntil: 'domcontentloaded' })
+  await page.waitForFunction(
+    () => document.querySelector('article') !== null || document.body.innerText.includes('个段落'),
+    { timeout: 10000 },
+  )
+  const startNeeded = await page.evaluate(() => document.body.innerText.includes('个段落'))
+  if (startNeeded) {
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll('button')].find(
+        (item) => item.textContent?.trim() === '开始',
+      )
+      button?.click()
+    })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  const playButton = await page.evaluate(() => {
+    const button = document.querySelector('button[aria-label="朗读这一段"]')
+    if (!button) return false
+    button.click()
+    return true
+  })
+  await new Promise((resolve) => setTimeout(resolve, 900))
+  results.speak = await page.evaluate(() => ({
+    button: document.querySelector('button[aria-label="朗读这一段"]') !== null ||
+      document.querySelector('button[aria-label="暂停朗读"]') !== null,
+    notice: document.body.innerText.includes('没有英文语音'),
+    highlighted: document.querySelectorAll('.reader-sentence').length > 0,
+  }))
+  results.speak.buttonClicked = playButton
+  results.speak.degraded = results.speak.notice || results.speak.highlighted
+
   // 4b. A word inside a choice opens the entry without advancing the story.
   await page.goto(`${base}/#/stories/the-lighthouse`, { waitUntil: 'domcontentloaded' })
   // A save already exists at this point, so the page may open mid-story.
@@ -201,6 +234,7 @@ const ok =
   results.reachedEnding === true &&
   results.afterUndo?.stillEnding === false &&
   results.afterUndo?.hasChoices === true &&
+  results.speak?.degraded === true &&
   results.choiceWord?.panelOpen === true &&
   results.choiceWord?.advanced === false &&
   unlocked === true

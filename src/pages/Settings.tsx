@@ -17,6 +17,7 @@ import {
 import { PageHeader } from '../components/PageHeader'
 import { BackupPanel } from '../components/settings/BackupPanel'
 import { HealthPanel } from '../components/settings/HealthPanel'
+import { VoicePanel } from '../components/settings/VoicePanel'
 import { LocalDataPanel } from '../components/settings/LocalDataPanel'
 import {
   ImportLimitDialog,
@@ -183,7 +184,7 @@ export default function Settings() {
         <Section
           icon={Volume2}
           title="发音"
-          description="使用浏览器系统语音（Web Speech API），音色与可用口音取决于你的设备。"
+          description="使用系统的语音（Web Speech API），音色取决于你的设备装了什么语音。"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm text-ink">默认口音</span>
@@ -234,6 +235,8 @@ export default function Settings() {
             </button>
             <span className="text-[10px] text-faint">试听词：serendipity</span>
           </div>
+
+          <VoicePanel accent={settings.accent} rate={settings.rate} />
         </Section>
 
         <Section
