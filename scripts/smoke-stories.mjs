@@ -91,7 +91,7 @@ try {
         item.textContent?.includes('再玩一次'),
       )
       const heading = replay?.closest('section')?.querySelector('h2')
-      const choices = [...document.querySelectorAll('button[aria-label^="选择："]')].filter(
+      const choices = [...document.querySelectorAll('button[data-choice]')].filter(
         (item) => !item.hasAttribute('disabled'),
       )
       return {
@@ -106,7 +106,7 @@ try {
     }
     if (state.choices.length === 0) break
     await page.evaluate(() => {
-      const choice = [...document.querySelectorAll('button[aria-label^="选择："]')].find(
+      const choice = [...document.querySelectorAll('button[data-choice]')].find(
         (item) => !item.hasAttribute('disabled'),
       )
       choice?.click()
@@ -130,7 +130,7 @@ try {
       stillEnding: [...document.querySelectorAll('button')].some((item) =>
         item.textContent?.includes('再玩一次'),
       ),
-      hasChoices: document.querySelectorAll('button[aria-label^="选择："]').length > 0,
+      hasChoices: document.querySelectorAll('button[data-choice]').length > 0,
     }))
   }
 
@@ -159,8 +159,7 @@ try {
     () => document.querySelector('article')?.innerText.slice(0, 40) ?? '',
   )
   await page.evaluate(() => {
-    const word = document.querySelector('[aria-label^="选择："]')?.parentElement
-      ?.querySelector('[data-word]')
+    const word = document.querySelector('button[data-choice] [data-word]')
     word?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
   await new Promise((resolve) => setTimeout(resolve, 600))

@@ -452,6 +452,18 @@ body::before {
   outline-offset: 3px;
 }
 
+/* Inside a choice row the whole row is clickable too, so a word needs a
+   louder cue than the article's 8% wash or "am I on a word?" is unreadable. */
+.choice-word {
+  padding: 0 1px;
+  margin: 0 -1px;
+}
+
+.choice-word:hover {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
 .reader-word-active {
   background: var(--accent-soft);
   color: var(--ink);

@@ -112,10 +112,13 @@ export const InlineWords = memo(function InlineWords({
   text,
   paragraph,
   activeToken,
+  wordClassName = '',
 }: {
   text: string
   paragraph: number
   activeToken: TokenPosition | null
+  /** Extra class on each word, e.g. a louder hover inside clickable rows. */
+  wordClassName?: string
 }) {
   const tokens = useMemo(() => tokenizeParagraph(text), [text])
 
@@ -133,7 +136,9 @@ export const InlineWords = memo(function InlineWords({
             data-word={token.text}
             data-paragraph={paragraph}
             data-token={tokenIndex}
-            className={`reader-word${active ? ' reader-word-active' : ''}`}
+            className={`reader-word${active ? ' reader-word-active' : ''}${
+              wordClassName ? ` ${wordClassName}` : ''
+            }`}
           >
             {token.text}
           </span>

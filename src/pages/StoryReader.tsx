@@ -209,50 +209,58 @@ export default function StoryReader() {
           ) : (
             <section className="space-y-2">
               <p className="px-1 text-[10px] text-faint">
-                点单词可以查词，点右侧箭头做出选择。
+                整行都能点选；只有点到单词时是查词（单词会亮一下）。
               </p>
               {choices.map((choice, index) => {
                 const available = isChoiceAvailable(choice, save.vars)
                 return (
-                  <div
+                  <button
                     key={choice.id}
-                    className={`flex items-stretch overflow-hidden rounded-2xl border transition-colors ${
+                    type="button"
+                    data-choice={choice.id}
+                    disabled={!available}
+                    // Whole row chooses; only a click that lands on a word is a
+                    // lookup. Words highlight on hover, so the split is visible.
+                    onClick={(event) => {
+                      const word = (event.target as HTMLElement).closest<HTMLElement>(
+                        '[data-word]',
+                      )
+                      if (word) {
+                        openWordAt(word)
+                        return
+                      }
+                      choose(story, choice.id)
+                    }}
+                    className={`group flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm leading-relaxed transition-colors ${
                       available
-                        ? 'border-line bg-surface hover:border-accent/40'
-                        : 'border-line/60 bg-sunken/40'
+                        // No row background on hover: the word's own wash has to
+                        // stay the only highlight, or "am I on a word?" is unreadable.
+                        ? 'border-line bg-surface text-ink hover:border-accent/40'
+                        : 'cursor-not-allowed border-line/60 bg-sunken/40 text-faint'
                     }`}
                   >
-                    {/* Words stay clickable for lookup; choosing is the arrow. */}
-                    <div
-                      className={`min-w-0 flex-1 px-4 py-3 text-sm leading-relaxed ${
-                        available ? 'text-ink' : 'text-faint'
-                      }`}
-                      onClick={handleClick}
-                    >
+                    <span className="min-w-0 flex-1">
                       <InlineWords
                         text={choice.label}
                         paragraph={-10 - index}
                         activeToken={activeToken}
+                        wordClassName="choice-word"
                       />
                       {!available && (
                         <span className="ml-1 text-[10px] text-faint">（条件还不满足）</span>
                       )}
-                    </div>
-                    <button
-                      type="button"
-                      disabled={!available}
-                      onClick={() => choose(story, choice.id)}
-                      className={`flex w-12 shrink-0 items-center justify-center border-l transition-colors ${
+                    </span>
+                    <ArrowRight
+                      size={16}
+                      strokeWidth={1.8}
+                      aria-hidden="true"
+                      className={`shrink-0 transition-transform ${
                         available
-                          ? 'border-line bg-surface text-muted hover:bg-accent-wash hover:text-accent'
-                          : 'cursor-not-allowed border-line/60 text-faint'
+                          ? 'text-faint group-hover:translate-x-0.5 group-hover:text-accent'
+                          : 'text-faint'
                       }`}
-                      aria-label={`选择：${choice.label}`}
-                      title="选择这一项"
-                    >
-                      <ArrowRight size={16} strokeWidth={1.8} />
-                    </button>
-                  </div>
+                    />
+                  </button>
                 )
               })}
             </section>
