@@ -102,3 +102,43 @@ export const ReaderTitle = memo(function ReaderTitle({
     </>
   )
 })
+
+/**
+ * One line of text whose words can be looked up, without the block layout of
+ * ReaderText. Used for story choices, where the surrounding element still has
+ * its own click behaviour.
+ */
+export const InlineWords = memo(function InlineWords({
+  text,
+  paragraph,
+  activeToken,
+}: {
+  text: string
+  paragraph: number
+  activeToken: TokenPosition | null
+}) {
+  const tokens = useMemo(() => tokenizeParagraph(text), [text])
+
+  return (
+    <>
+      {tokens.map((token, tokenIndex) => {
+        if (token.type === 'text') {
+          return <span key={tokenIndex}>{token.text}</span>
+        }
+        const active =
+          activeToken?.paragraph === paragraph && activeToken.token === tokenIndex
+        return (
+          <span
+            key={tokenIndex}
+            data-word={token.text}
+            data-paragraph={paragraph}
+            data-token={tokenIndex}
+            className={`reader-word${active ? ' reader-word-active' : ''}`}
+          >
+            {token.text}
+          </span>
+        )
+      })}
+    </>
+  )
+})

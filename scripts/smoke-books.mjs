@@ -10,7 +10,6 @@
  * `--force-clean` deletes study/reader/reader-progress/library first.
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
 import { zipSync, strToU8 } from 'fflate'
 import puppeteer from 'puppeteer-core'
 
@@ -117,6 +116,8 @@ if (forceClean) {
 }
 
 const results = {}
+mkdirSync(dirname(shot), { recursive: true })
+
 const browser = await puppeteer.launch({
   executablePath,
   headless: true,

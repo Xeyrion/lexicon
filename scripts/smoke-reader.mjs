@@ -9,7 +9,8 @@
  *
  * Chrome is taken from CHROME_PATH or the default Windows install path.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import puppeteer from 'puppeteer-core'
 
 const args = process.argv.slice(2)
@@ -34,6 +35,8 @@ if (!executablePath) {
   console.error('找不到 Chrome，请设置 CHROME_PATH。')
   process.exit(1)
 }
+
+mkdirSync(dirname(shot), { recursive: true })
 
 const browser = await puppeteer.launch({
   executablePath,

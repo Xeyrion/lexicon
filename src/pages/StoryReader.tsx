@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import { ArrowLeft, RotateCcw, Undo2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RotateCcw, Undo2 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
-import { ReaderText } from '../components/reader/ReaderText'
+import { InlineWords, ReaderText } from '../components/reader/ReaderText'
 import { WordPanel } from '../components/reader/WordPanel'
 import { LIGHTHOUSE_STORY } from '../data/lighthouse'
 import { useReaderDictionary } from '../hooks/useReaderDictionary'
@@ -67,9 +67,7 @@ export default function StoryReader() {
     setActiveToken(null)
   }, [])
 
-  const handleClick = (event: ReactMouseEvent<HTMLElement>) => {
-    const target = (event.target as HTMLElement).closest<HTMLElement>('[data-word]')
-    if (!target) return
+  const openWordAt = (target: HTMLElement) => {
     const raw = target.dataset.word
     if (!raw) return
     setPanelQuery(raw)
@@ -77,6 +75,11 @@ export default function StoryReader() {
       paragraph: Number(target.dataset.paragraph),
       token: Number(target.dataset.token),
     })
+  }
+
+  const handleClick = (event: ReactMouseEvent<HTMLElement>) => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>('[data-word]')
+    if (target) openWordAt(target)
   }
 
   const addEntry = useCallback(
@@ -205,25 +208,51 @@ export default function StoryReader() {
             </section>
           ) : (
             <section className="space-y-2">
-              {choices.map((choice) => {
+              <p className="px-1 text-[10px] text-faint">
+                点单词可以查词，点右侧箭头做出选择。
+              </p>
+              {choices.map((choice, index) => {
                 const available = isChoiceAvailable(choice, save.vars)
                 return (
-                  <button
+                  <div
                     key={choice.id}
-                    type="button"
-                    disabled={!available}
-                    onClick={() => choose(story, choice.id)}
-                    className={`w-full rounded-2xl border px-4 py-3 text-left text-sm transition-colors ${
+                    className={`flex items-stretch overflow-hidden rounded-2xl border transition-colors ${
                       available
-                        ? 'border-line bg-surface text-ink hover:border-accent/40 hover:bg-accent-wash'
-                        : 'cursor-not-allowed border-line/60 bg-sunken/40 text-faint'
+                        ? 'border-line bg-surface hover:border-accent/40'
+                        : 'border-line/60 bg-sunken/40'
                     }`}
                   >
-                    {choice.label}
-                    {!available && (
-                      <span className="ml-2 text-[10px] text-faint">（条件还不满足）</span>
-                    )}
-                  </button>
+                    {/* Words stay clickable for lookup; choosing is the arrow. */}
+                    <div
+                      className={`min-w-0 flex-1 px-4 py-3 text-sm leading-relaxed ${
+                        available ? 'text-ink' : 'text-faint'
+                      }`}
+                      onClick={handleClick}
+                    >
+                      <InlineWords
+                        text={choice.label}
+                        paragraph={-10 - index}
+                        activeToken={activeToken}
+                      />
+                      {!available && (
+                        <span className="ml-1 text-[10px] text-faint">（条件还不满足）</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!available}
+                      onClick={() => choose(story, choice.id)}
+                      className={`flex w-12 shrink-0 items-center justify-center border-l transition-colors ${
+                        available
+                          ? 'border-line bg-surface text-muted hover:bg-accent-wash hover:text-accent'
+                          : 'cursor-not-allowed border-line/60 text-faint'
+                      }`}
+                      aria-label={`选择：${choice.label}`}
+                      title="选择这一项"
+                    >
+                      <ArrowRight size={16} strokeWidth={1.8} />
+                    </button>
+                  </div>
                 )
               })}
             </section>

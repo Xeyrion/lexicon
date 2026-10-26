@@ -12,7 +12,8 @@
  * onboarding check needs (it only renders on an empty install). Never point it
  * at a data directory you care about.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import puppeteer from 'puppeteer-core'
 
 const args = process.argv.slice(2)
@@ -46,6 +47,8 @@ if (forceClean) {
 }
 
 const results = {}
+mkdirSync(dirname(shot), { recursive: true })
+
 const browser = await puppeteer.launch({
   executablePath,
   headless: true,

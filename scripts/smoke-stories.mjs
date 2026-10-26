@@ -5,7 +5,8 @@
  *   LEXICON_DATA_DIR=%TEMP%\lexicon-smoke npx vite --port 5270
  *   node scripts/smoke-stories.mjs --base http://127.0.0.1:5270 --force-clean
  */
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import puppeteer from 'puppeteer-core'
 
 const args = process.argv.slice(2)
@@ -39,6 +40,8 @@ if (forceClean) {
 }
 
 const results = {}
+mkdirSync(dirname(shot), { recursive: true })
+
 const browser = await puppeteer.launch({
   executablePath,
   headless: true,
@@ -88,9 +91,8 @@ try {
         item.textContent?.includes('再玩一次'),
       )
       const heading = replay?.closest('section')?.querySelector('h2')
-      const choices = [...document.querySelectorAll('button')].filter(
-        (item) =>
-          item.className.includes('rounded-2xl') && !item.hasAttribute('disabled'),
+      const choices = [...document.querySelectorAll('button[aria-label^="选择："]')].filter(
+        (item) => !item.hasAttribute('disabled'),
       )
       return {
         ending: heading?.textContent?.trim() ?? null,
@@ -104,9 +106,8 @@ try {
     }
     if (state.choices.length === 0) break
     await page.evaluate(() => {
-      const choice = [...document.querySelectorAll('button')].find(
-        (item) =>
-          item.className.includes('rounded-2xl') && !item.hasAttribute('disabled'),
+      const choice = [...document.querySelectorAll('button[aria-label^="选择："]')].find(
+        (item) => !item.hasAttribute('disabled'),
       )
       choice?.click()
     })
@@ -129,11 +130,50 @@ try {
       stillEnding: [...document.querySelectorAll('button')].some((item) =>
         item.textContent?.includes('再玩一次'),
       ),
-      hasChoices: [...document.querySelectorAll('button')].some((item) =>
-        item.className.includes('rounded-2xl'),
-      ),
+      hasChoices: document.querySelectorAll('button[aria-label^="选择："]').length > 0,
     }))
   }
+
+  // 4b. A word inside a choice opens the entry without advancing the story.
+  await page.goto(`${base}/#/stories/the-lighthouse`, { waitUntil: 'domcontentloaded' })
+  // A save already exists at this point, so the page may open mid-story.
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes('个段落') ||
+      document.querySelector('article') !== null,
+    { timeout: 10000 },
+  )
+  const needsStart = await page.evaluate(() =>
+    document.body.innerText.includes('个段落'),
+  )
+  if (needsStart) {
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll('button')].find(
+        (item) => item.textContent?.trim() === '开始',
+      )
+      button?.click()
+    })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  const beforeWord = await page.evaluate(
+    () => document.querySelector('article')?.innerText.slice(0, 40) ?? '',
+  )
+  await page.evaluate(() => {
+    const word = document.querySelector('[aria-label^="选择："]')?.parentElement
+      ?.querySelector('[data-word]')
+    word?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  results.choiceWord = await page.evaluate(() => ({
+    panelOpen: document.querySelector('[aria-label="关闭词条"]') !== null,
+    stillSameNode: document.querySelector('article')?.innerText.slice(0, 40) ?? '',
+  }))
+  results.choiceWord.advanced = results.choiceWord.stillSameNode !== beforeWord
+  await page.evaluate(() => {
+    const close = document.querySelector('[aria-label="关闭词条"]')
+    close?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  await new Promise((resolve) => setTimeout(resolve, 300))
 
   // 5. The atlas should now report one unlocked ending. Wait past the store's
   // debounce first: a reload cancels the in-flight flush.
@@ -162,6 +202,8 @@ const ok =
   results.reachedEnding === true &&
   results.afterUndo?.stillEnding === false &&
   results.afterUndo?.hasChoices === true &&
+  results.choiceWord?.panelOpen === true &&
+  results.choiceWord?.advanced === false &&
   unlocked === true
 console.log(ok ? 'SMOKE OK' : 'SMOKE FAILED')
 process.exitCode = ok ? 0 : 1
