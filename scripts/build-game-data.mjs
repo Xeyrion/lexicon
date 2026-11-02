@@ -287,7 +287,8 @@ writeFileSync(
       upstream: UPSTREAM,
       license: 'MIT',
       copyright: 'Copyright (c) 2021-2026 神戸小鳥 and 神户小德',
-      generatedAt: new Date().toISOString(),
+      // No build timestamp: identical input must produce an identical file, or
+      // every rebuild dirties the working tree for no reason.
       counts: {
         events: events.length,
         ages: ages.length,

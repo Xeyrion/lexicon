@@ -12,6 +12,7 @@
 - **精读文章**：粘贴或导入文章，悬停看词义、点击固定词条、拖选查短语，生词一键收进个人词库。
 - **读整本书**：导入 EPUB / Markdown，自动按目录切章，书架管理，按章阅读并记录进度。
 - **互动故事**：带分支和轻状态的短篇——选项会改变变量，世界会记得你，结局收进图鉴。
+- **玩一局**：抽天赋、分属性，一年一年读完一生；正文能点词，收进同一个生词本。
 - **数据自主**：每天自动备份，随时导出/导入完整 JSON，可一键清空。
 
 ## 截图
@@ -27,6 +28,10 @@
 | 书架 | 统计 |
 | --- | --- |
 | ![书架](docs/images/library.png) | ![统计](docs/images/stats.png) |
+
+| 游戏 | 成就 |
+| --- | --- |
+| ![游戏](docs/images/game.png) | ![成就](docs/images/achievements.png) |
 
 深色模式：
 
@@ -136,6 +141,18 @@ npm start
 - **变量写法**：`effects` 有两种——`{"var":"coins","set":true}` 赋值、`{"var":"coins","add":1}` 累加（负数即扣减）；`requires` 支持 `is` / `gte` / `lte` 和 `all` / `any` / `not` 组合。
 - **自己写**：`npm run story:check <file>` 校验、`npm run story:map <file>` 看分支树，或在「故事 → 导出模板」拿一份带全部字段的模板。导入时校验不过会直接拒绝并列出问题。
 
+## 游戏
+
+「游戏」tab（`/game`）是一个小游戏列表，目前只有一款：**人生模拟器**（`/game/remake`）。
+
+- **节奏按阅读走**：没有实时倒计时，点「下一年」才推进；自动播放 0.5×–20× 可调，读得慢不会错过事件。空格 / 回车也能推进。
+- **查词就在正文里**：事件正文、追加句、天赋名、成就名都能点开词条，收进生词本后和学习模块共用同一套 FSRS 复习。
+- **两种语言**：EN / 中一键切换，只换文案、不重开当前局；中文模式纯阅读，不触发查词。
+- **两种局**：标准局（10 抽 3 选、20 点属性）与自定义局（抽选数、点数、单项上限、刷新次数、自选天赋都可调）。成就按局类型标注「标准 / 自定义」，同一条先自定义后标准会升级为标准。
+- **中途退出不丢**：当前局（年龄、日志、属性、随机数游标）写进 `game.json`，回首页可以「继续这一局」；「开始新的一生」会覆盖它。
+- **内容提示**：含死亡、疾病、暴力等情节，基调是黑色幽默。
+- **来源与许可**：引擎与事件数据来自 [VickScarlet/remake](https://github.com/VickScarlet/remake)（MIT，`d20aa81`），原始 `LICENSE` 与版权行保留在 `src/game/remake/`；界面、存档、查词、设置页是这里新写的，文案为英文重写与翻译。设计和边界见 [`docs/PLAN-remake.md`](docs/PLAN-remake.md)。
+
 ## 常用脚本
 
 ```powershell
@@ -174,9 +191,10 @@ src/
   lib/          纯函数：validation/ 按数据域拆分、EPUB/Markdown 解析、故事引擎、FSRS、统计、存储适配
   store/        Zustand store，每个数据文件一个（study / reader / library / stories / game）
   data/         随应用打包的内容（内置短篇）
+  game/         游戏：registry、引擎（remake/ 是 vendor 的 MIT 源码）、数据与译文、页面
 server/         本地数据接口：storage/ 下按 core / config / envelope / backups / http 分层
-scripts/        词典构建、故事作者工具、无头浏览器冒烟与截图
-docs/           ISSUES.md（未决问题）、HISTORY.md（每轮修复记录）、阶段计划、截图
+scripts/        词典构建、游戏数据构建、故事作者工具、译文校验、无头浏览器冒烟与截图
+docs/           ISSUES.md（未决问题）、HISTORY.md（每轮修复记录）、阶段计划、翻译任务、截图
 public/data/    词书与阅读词典（构建产物，已提交，保证离线可用）
 ```
 

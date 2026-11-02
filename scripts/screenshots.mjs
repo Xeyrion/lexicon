@@ -21,7 +21,7 @@ function arg(name, fallback) {
 const base = arg('base', 'http://127.0.0.1:5173').replace(/\/$/, '')
 const outDir = arg('out', 'docs/images')
 const forceClean = args.includes('--force-clean')
-const KINDS = ['study', 'reader', 'reader-progress', 'library', 'stories']
+const KINDS = ['study', 'reader', 'reader-progress', 'library', 'stories', 'game']
 
 if (!forceClean) {
   console.error('这个脚本会清空数据目录。确认是临时目录后加 --force-clean 再运行。')
@@ -325,6 +325,29 @@ async function seed() {
     },
     version: 1,
   })
+
+  // A played-in game profile, so the hub and the achievement grid are not blank.
+  await put('game', {
+    state: {
+      profiles: {
+        remake: {
+          times: 7,
+          talents: [],
+          events: [],
+          achievements: [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 115, 116],
+          achievementMeta: {
+            101: { mode: 'standard', at: iso(-6) },
+            102: { mode: 'standard', at: iso(-6) },
+            103: { mode: 'custom', at: iso(-4) },
+            104: { mode: 'standard', at: iso(-2) },
+          },
+        },
+      },
+      settings: { locale: 'en', speed: 1 },
+      runs: {},
+    },
+    version: 1,
+  })
 }
 
 async function shoot() {
@@ -405,6 +428,91 @@ async function shoot() {
   await page.goto(`${base}/#/stats`, { waitUntil: 'domcontentloaded' })
   await settle(1600)
   await save('stats')
+
+  // A life needs a few clicks to reach the log, and some lives end in infancy.
+  // Roll again until the log is long enough to be worth a screenshot.
+  let captured = false
+  for (let attempt = 0; attempt < 5 && !captured; attempt += 1) {
+    await page.goto(`${base}/#/game/remake`, { waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(() => /开始新的一生|继续这一局/.test(document.body.innerText), {
+      timeout: 20000,
+    })
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll('button')].find((item) =>
+        /开始新的一生|继续这一局/.test(item.textContent ?? ''),
+      )
+      button?.click()
+    })
+    await settle(700)
+    if (await page.evaluate(() => /选 ?\d+ ?个天赋/.test(document.body.innerText))) {
+      for (let pick = 0; pick < 3; pick += 1) {
+        await page.evaluate((index) => {
+          const cards = [...document.querySelectorAll('button')].filter((item) =>
+            item.className.includes('rounded-2xl border p-4'),
+          )
+          cards[index]?.click()
+        }, pick)
+        await settle(250)
+      }
+      await page.evaluate(() => {
+        const next = [...document.querySelectorAll('button')].find((item) =>
+          item.textContent?.includes('下一步'),
+        )
+        next?.click()
+      })
+      await settle(700)
+      await page.evaluate(() => {
+        const start = [...document.querySelectorAll('button')].find((item) =>
+          item.textContent?.includes('开始这一生'),
+        )
+        start?.click()
+      })
+      await settle(700)
+    }
+    for (let year = 0; year < 12; year += 1) {
+      const alive = await page.evaluate(() =>
+        [...document.querySelectorAll('button')].some((item) =>
+          item.textContent?.includes('下一年'),
+        ),
+      )
+      if (!alive) break
+      await page.evaluate(() => {
+        const next = [...document.querySelectorAll('button')].find((item) =>
+          item.textContent?.includes('下一年'),
+        )
+        next?.click()
+      })
+      await settle(140)
+    }
+    const years = await page.evaluate(
+      () => document.querySelectorAll('.surface-card .border-b').length,
+    )
+    captured = years >= 6
+    if (!captured) {
+      // Discard this life: summary (if any) then back to the start screen.
+      await page.evaluate(() => {
+        const summary = [...document.querySelectorAll('button')].find((item) =>
+          item.textContent?.includes('人生总结'),
+        )
+        summary?.click()
+      })
+      await settle(500)
+      await page.evaluate(() => {
+        const home = [...document.querySelectorAll('button')].find((item) =>
+          item.textContent?.includes('回到开头'),
+        )
+        home?.click()
+      })
+      await settle(500)
+    }
+  }
+  await settle(600)
+  await save('game')
+
+  await page.goto(`${base}/#/game/remake/achievements`, { waitUntil: 'domcontentloaded' })
+  await page.waitForFunction(() => document.body.innerText.includes('已解锁'), { timeout: 20000 })
+  await settle(900)
+  await save('achievements')
 
   // Dark mode last, so only this shot is dark.
   await page.goto(`${base}/#/read/shot-attention`, { waitUntil: 'domcontentloaded' })
