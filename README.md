@@ -131,6 +131,25 @@ npm start
 - **清空数据语义**：「清除全部数据」只会删除主数据文件（`study.json`、`reader.json`、`reader-progress.json`、`game.json`），**不会删除** `backups/` 目录。清空弹窗会明确提示备份仍会保留，且需要彻底清理时由用户手动删除备份目录。确认弹窗支持取消（Escape/遮罩/取消按钮）。
 - **手动恢复自动备份**：也可以先关闭应用，再把需要恢复的备份文件复制回原文件名，例如把 `backups/study-2026-10-24.json` 覆盖为 `study.json`。备份文件本身是完整的数据信封（包含 `appId`、`revision` 和 `data`），不要只截取其中一部分。
 
+## 部署到网页（GitHub Pages）
+
+本地版和网页版是**同一份代码的两个构建产物**，靠 `base` 区分：
+
+```powershell
+npm run build        # base = /        → start.cmd、npm run serve、打包的 exe
+npm run build:pages  # base = ./       → 静态托管
+```
+
+网页版没有 Node 进程，`/api/storage` 不存在。应用启动时会探测一次（要求返回 JSON，避免把静态托管的 SPA 外壳误判成服务端），连不上就自动改用 **IndexedDB**。所以网页版能玩、能背、能查词，刷新和关浏览器都不丢，但：
+
+- 数据在**当前浏览器**里，换浏览器/换设备看不到
+- 没有每日自动备份，也没有损坏隔离
+- 清理浏览数据会丢，**「导出备份」是唯一的保险**
+
+仓库里的 `.github/workflows/pages.yml` 会在 push 到 `main` 时自动构建并部署。第一次使用需要在 GitHub 仓库的 **Settings → Pages → Source** 里选 **GitHub Actions**。
+
+> 资源用相对路径（`base: './'`）而不是 `/lexicon/`：Pages 的地址保留仓库名的大小写，写死一个 `/lexicon/` 而仓库叫 `Lexicon` 就会整站 404。应用用的是 hash 路由，路径不会变，相对路径始终解析到正确位置。
+
 ## 书籍模式
 
 「阅读」页面顶部可以在**文章**和**书籍**之间切换，书架在 `/library`。
@@ -170,6 +189,7 @@ npm start
 npm start            # 构建后启动（日常使用，跑 dist/）
 npm run dev          # 启动开发服务器（同时提供本地数据接口）
 npm run build        # 类型检查并构建到 dist/
+npm run build:pages  # 同上，但资源用相对路径，供静态托管（GitHub Pages）使用
 npm run build:server # 只把 server/ 编译成 dist-server/（打包用）
 npm run serve        # 构建后用内置服务器跑 dist/，不经过 vite preview
 npm run preview      # 预览已构建的版本

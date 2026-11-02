@@ -429,3 +429,14 @@
 - 新增 2 条测试：合法 run 保留、坏 run 丢弃、无 run 时字段不存在。
 
 实测（静态托管，两个全新浏览器）：玩到 6 岁（8 条日志）→ 导出 → 另一个浏览器导入 → 首页显示「上一局还没走完 · 停在 6 岁 · 已过 7 年」→ 继续后日志仍是 8 条，与导出时完全一致。
+
+## 2026-11-02 部署链路：base 跟着 mode 走 + Actions
+
+- `vite.config.ts` 改成函数式配置，`base: env.VITE_BASE || '/'`。`npm run build` 仍是 `/`（start.cmd、standalone、以后的 exe 全不变），`npm run build:pages` 读 `.env.pages`。
+- **用 `./` 而不是 `/lexicon/`**：Pages 的地址保留仓库名大小写，写死 `/lexicon/` 而仓库叫 `Lexicon` 就会整站 404。应用是 hash 路由、路径不变，相对路径永远解析到正确位置。
+- `.github/workflows/pages.yml`：push 到 `main` 触发，`upload-pages-artifact` 走 artifact 而不是 `gh-pages` 分支——`dist/` 有 23 MB 词典，每次部署提交一遍会把仓库撑爆。
+
+### 验证
+
+- 两种构建的产物路径分别是 `/assets/...` 与 `./assets/...`。
+- 把 `dist/` 放进 `lexicon/` 子目录用静态服务器跑（模拟 Pages 项目站）：页面正常渲染、`backend=idb`、service worker 已接管，**唯一的 4xx 是探测用的 `/api/storage` 404**，属于预期。
