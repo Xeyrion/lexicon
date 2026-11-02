@@ -1,5 +1,6 @@
 import { del, get, set } from 'idb-keyval'
 import type { StateStorage } from 'zustand/middleware'
+import { detectBackend, idbLoad, idbRemove, idbSave } from './storageRemote'
 
 const API_BASE = '/api/storage'
 const APP_ID = 'lexicon'
@@ -92,6 +93,10 @@ let hydrationWriteBlocked = false
 let cacheWriteFailed = false
 let fileStorageStatus: FileStorageStatus = 'unknown'
 let fileStorageError = ''
+// Distinguishes "this build has no local service at all" (a static deploy or a
+// PWA) from "the service was here and went away". Only the second one deserves
+// an error banner; the first is the normal state of a hosted copy.
+let everConnected = false
 
 const STATUS_RANK: Record<FileStorageStatus, number> = {
   unknown: 0,
@@ -105,6 +110,7 @@ function reportFileStatus(
   status: FileStorageStatus,
   error = '',
 ): void {
+  if (status === 'online') everConnected = true
   const detail = error.trim()
   const normalized =
     detail && !detail.includes(`${kind}.json`)
@@ -131,6 +137,15 @@ export function getFileStorageStatus(): FileStorageStatus {
 
 export function getFileStorageError(): string {
   return fileStorageError
+}
+
+/**
+ * Whether any file request has ever reached the local service in this page.
+ * When it is false the app is running without one (static hosting, PWA), which
+ * is a supported mode rather than a failure.
+ */
+export function hasFileServiceEverConnected(): boolean {
+  return everConnected
 }
 
 export function subscribeFileStorageStatus(listener: () => void): () => void {
@@ -403,7 +418,7 @@ function describeFileError(kind: Kind, message: string): string {
   return `${kind}.json：本地服务不认识这个数据文件，通常是它还在跑旧版本。请重启应用（npm run dev 或 start.cmd）后重新加载页面。`
 }
 
-async function readFile(controller: Controller): Promise<FileResult> {
+async function httpReadFile(controller: Controller): Promise<FileResult> {
   const abort = new AbortController()
   const timeout = window.setTimeout(() => abort.abort(), 1200)
   try {
@@ -456,7 +471,7 @@ async function readFile(controller: Controller): Promise<FileResult> {
   }
 }
 
-async function writeFile(controller: Controller, value: string): Promise<boolean> {
+async function httpWriteFile(controller: Controller, value: string): Promise<boolean> {
   if (controller.conflict) return false
 
   let data: unknown
@@ -531,7 +546,7 @@ async function writeFile(controller: Controller, value: string): Promise<boolean
   }
 }
 
-async function deleteFile(kind: Kind): Promise<boolean> {
+async function httpDeleteFile(kind: Kind): Promise<boolean> {
   const abort = new AbortController()
   const timeout = window.setTimeout(() => abort.abort(), 3000)
   try {
@@ -561,6 +576,43 @@ async function deleteFile(kind: Kind): Promise<boolean> {
   } finally {
     window.clearTimeout(timeout)
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Transport dispatch
+ *
+ * Everything above speaks HTTP to the local service. Everything below is the
+ * engine — debounce, dirty flag, serialised writes, unread guard — and does not
+ * care where the bytes end up. A hosted copy has no service to talk to, so
+ * these three entry points fall through to IndexedDB and the engine is none the
+ * wiser. Revision numbers are meaningless without a second writer, so they stay
+ * at zero on that path.
+ * ------------------------------------------------------------------ */
+
+async function readFile(controller: Controller): Promise<FileResult> {
+  if ((await detectBackend()) === 'file') return httpReadFile(controller)
+  try {
+    const value = await idbLoad(controller.cacheKey, controller.legacyCacheKey)
+    controller.revision = 0
+    controller.conflict = false
+    if (value == null) return { status: 'missing' }
+    return { status: 'ok', data: JSON.parse(value), revision: 0 }
+  } catch {
+    return { status: 'error', message: '浏览器存储读取失败' }
+  }
+}
+
+async function writeFile(controller: Controller, value: string): Promise<boolean> {
+  if ((await detectBackend()) === 'file') return httpWriteFile(controller, value)
+  const saved = await idbSave(controller.cacheKey, value)
+  if (!saved) reportFileStatus(controller.kind, 'error', '浏览器存储写入失败（可能已满）')
+  return saved
+}
+
+async function deleteFile(kind: Kind): Promise<boolean> {
+  if ((await detectBackend()) === 'file') return httpDeleteFile(kind)
+  const keys = CACHE_KEYS[kind]
+  return idbRemove(keys.current, keys.legacy)
 }
 
 async function load(controller: Controller): Promise<string | null> {

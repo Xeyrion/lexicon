@@ -52,6 +52,15 @@ export function emptyProfile(): StoredProfile {
   return { times: 0, talents: [], events: [], achievements: [] }
 }
 
+/**
+ * The engine opens a life at age -1: it is a sentinel for "not born yet", and
+ * the first `next()` turns it into 0. Showing that number to the player reads
+ * as a bug, so the UI floors it at zero. Scoring still uses the real value.
+ */
+export function shownAge(age: number): number {
+  return age > 0 ? age : 0
+}
+
 export function clampSpeed(value: unknown): number {
   const speed = Number(value)
   if (!Number.isFinite(speed)) return DEFAULT_GAME_SETTINGS.speed

@@ -10,6 +10,7 @@ import {
   sanitizeRun,
   sanitizeSettings,
   serializeGame,
+  shownAge,
   toProfileState,
 } from '../model'
 import { DEFAULT_RULES, normalizeRules } from '../rules'
@@ -151,5 +152,14 @@ describe('saved run', () => {
     expect(run?.alloc.charm).toBe(3)
     expect(run?.rules.pullCount).toBe(12)
     expect(run?.rngState).toBe(99)
+  })
+})
+
+describe('shownAge', () => {
+  it('floors the pre-birth sentinel at zero', () => {
+    // The engine opens a life at -1 and the first year turns it into 0.
+    expect(shownAge(-1)).toBe(0)
+    expect(shownAge(0)).toBe(0)
+    expect(shownAge(27)).toBe(27)
   })
 })

@@ -22,6 +22,7 @@ import {
   getFileStorageStatus,
   getHydrationWriteBlocked,
   getUnreadLabel,
+  hasFileServiceEverConnected,
   subscribeCacheWriteFailed,
   subscribeFileStorageStatus,
   subscribeHydrationWriteBlocked,
@@ -234,7 +235,8 @@ export default function Layout() {
             </Notice>
           )}
           {(storageStatus === 'offline' || storageStatus === 'error') &&
-            (!isReader || storageStatus === 'error') && (
+            (!isReader || storageStatus === 'error') &&
+            (storageStatus === 'error' || hasFileServiceEverConnected()) && (
             <Notice
               action={
                 storageStatus === 'error' ? (
@@ -249,7 +251,7 @@ export default function Layout() {
               }
             >
               {storageStatus === 'offline'
-                ? '本地文件服务未连接，更改暂时保存在浏览器缓存中。请通过 start.cmd 启动应用。'
+                ? '本地文件服务已断开，更改暂时保存在浏览器缓存中。请确认应用仍在运行，然后重新加载页面。'
                 : hasWriteConflict
                   ? '本地文件已被另一个窗口更新，本页已停止自动写入以避免覆盖。当前未保存的更改不会在刷新后保留；如需保留，请先到设置页导出备份。'
                   : `本地文件读写失败：${storageError || '未知错误'}。更改暂时保存在浏览器缓存中。如果数据文件损坏，请先备份或重命名该文件，然后重新加载页面。`}

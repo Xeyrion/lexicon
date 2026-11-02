@@ -20,6 +20,7 @@ import {
   deserializeGame,
   fromProfileState,
   serializeGame,
+  shownAge,
   toProfileState,
   type GameLocale,
 } from '../model'
@@ -569,8 +570,8 @@ function RemakeGame() {
                 <p className="text-sm text-ink">上一局还没走完</p>
                 <p className="mt-0.5 text-[11px] text-faint">
                   {savedRun.step === 'summary'
-                    ? `走到 ${savedRun.game?.props.current.age ?? 0} 岁，可以回去看总结`
-                    : `停在 ${savedRun.game?.props.current.age ?? 0} 岁 · 已过 ${Math.max(
+                    ? `走到 ${shownAge(savedRun.game?.props.current.age ?? 0)} 岁，可以回去看总结`
+                    : `停在 ${shownAge(savedRun.game?.props.current.age ?? 0)} 岁 · 已过 ${Math.max(
                         0,
                         savedRun.logs.length - 1,
                       )} 年`}
@@ -745,7 +746,9 @@ function RemakeGame() {
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
             <div className="rounded-xl border border-line bg-surface px-3 py-2">
               <p className="text-[10px] text-faint">年龄</p>
-              <p className="display text-xl tabular-nums text-ink">{game.props.current.age}</p>
+              <p className="display text-xl tabular-nums text-ink">
+                {shownAge(game.props.current.age)}
+              </p>
             </div>
             {ATTRS.map(({ key, label }) => (
               <div key={key} className="rounded-xl border border-line bg-surface px-3 py-2">

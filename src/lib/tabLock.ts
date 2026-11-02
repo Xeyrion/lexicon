@@ -17,6 +17,22 @@ let retryTimer: number | null = null
 let retryDelay = 2000
 let retryNotBefore = 0
 let takeoverInFlight = false
+// A tab the player just opened is almost always the one they mean to use, so it
+// asks once for the writer to step down. Manual takeover stays as the fallback.
+let autoAttempted = false
+let autoTimer: number | null = null
+let autoPending = false
+
+function setAutoPending(next: boolean): void {
+  if (autoPending === next) return
+  autoPending = next
+  listeners.forEach((listener) => listener())
+}
+
+/** True while an automatic takeover is still in flight. */
+export function isTakeoverPending(): boolean {
+  return autoPending
+}
 
 function setState(next: TabLockState): void {
   if (state === next) return
@@ -110,6 +126,11 @@ async function attemptAcquire(): Promise<void> {
     return
   }
   clearRetry()
+  if (autoTimer !== null) {
+    window.clearTimeout(autoTimer)
+    autoTimer = null
+  }
+  setAutoPending(false)
   retryDelay = 2000
   if (state === 'follower') {
     setStorageWriterEnabled(false)
@@ -144,10 +165,35 @@ function handleMessage(event: MessageEvent): void {
   }
 }
 
+/**
+ * When a tab loads and finds the lock held, it asks the current writer to flush
+ * and step down — but only once, and only if this tab is the one on screen.
+ * Opening a bookmark or restoring from the notification shade on a phone used
+ * to strand the player on a "已在另一个标签页打开" wall; this makes the newest
+ * visible tab win instead, with the manual screen kept as a fallback.
+ */
+function scheduleAutoTakeover(): void {
+  if (autoAttempted) return
+  if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+  autoAttempted = true
+  setAutoPending(true)
+  channel?.postMessage({ type: 'takeover-request' })
+  retryNotBefore = 0
+  retryDelay = 300
+  scheduleRetry(300)
+  autoTimer = window.setTimeout(() => {
+    autoTimer = null
+    if (state !== 'follower') return
+    // The other tab did not step down: stop hammering and show the manual screen.
+    setAutoPending(false)
+    retryDelay = 2000
+    scheduleRetry(2000)
+  }, 2500)
+}
+
 export async function startTabWriter(): Promise<void> {
   if (started) return
   started = true
-
   if (typeof BroadcastChannel !== 'undefined') {
     channel = new BroadcastChannel(CHANNEL_NAME)
     channel.addEventListener('message', handleMessage)
@@ -169,7 +215,8 @@ export async function startTabWriter(): Promise<void> {
 
   setStorageWriterEnabled(false)
   setState('follower')
-  scheduleRetry(retryDelay)
+  scheduleAutoTakeover()
+  if (state === 'follower') scheduleRetry(retryDelay)
 }
 
 export function enterWithoutLock(): void {

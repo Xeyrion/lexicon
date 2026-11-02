@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react
 import {
   enterWithoutLock,
   getTabLockState,
+  isTakeoverPending,
   requestTakeover,
   retryTabLock,
   startTabWriter,
@@ -36,7 +37,7 @@ function BlockedScreen() {
         <p className="kicker">Lexicon</p>
         <h1 className="display mt-3 text-2xl text-ink">已在另一个标签页打开</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          为避免两个页面互相覆盖数据，同一时间只允许一个页面写入。可以接管此页，或关闭另一个标签页后重试。
+          为了避免两个页面互相覆盖数据，同一时间只允许一个页面写入。点下面的按钮把写入权切到这一页，或关掉另一个标签页后重试。
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -95,6 +96,10 @@ export default function TabGate() {
     getTabLockState,
     () => 'checking' as const,
   )
+  // A tab that just opened asks the writer to step down before showing the
+  // "another tab" screen; while that is in flight, keep the splash up instead
+  // of flashing a wall the player cannot act on yet.
+  const pending = useSyncExternalStore(subscribeTabLockState, isTakeoverPending, () => false)
 
   useEffect(() => {
     void startTabWriter()
@@ -102,7 +107,7 @@ export default function TabGate() {
 
   if (state === 'checking') return <StartupScreen />
   if (state === 'unsupported') return <UnsupportedScreen />
-  if (state === 'follower') return <BlockedScreen />
+  if (state === 'follower') return pending ? <StartupScreen /> : <BlockedScreen />
 
   return (
     <Suspense fallback={<StartupScreen />}>
