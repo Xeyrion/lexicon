@@ -1,4 +1,4 @@
-import { Suspense, useSyncExternalStore, type ReactNode } from 'react'
+import { Suspense, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import {
   AlertCircle,
@@ -29,6 +29,7 @@ import {
   subscribeUnreadKinds,
 } from '../lib/storage'
 import { useIsDark } from '../lib/useIsDark'
+import { detectBackend, type Backend } from '../lib/storageRemote'
 import { useAppStore } from '../store/appStore'
 import { Logo } from './Logo'
 import PageFallback from './PageFallback'
@@ -102,6 +103,18 @@ export default function Layout() {
   const streak = getStreak(days)
   const studiedToday = dayTotal(days[dateKey()])
   const isReader = location.pathname.startsWith('/read/')
+  // The sidebar footer says where the data lives; on a hosted copy there is no
+  // data directory to point at, and the honest answer is "this browser".
+  const [hosted, setHosted] = useState<Backend | null>(null)
+  useEffect(() => {
+    let alive = true
+    void detectBackend().then((value) => {
+      if (alive) setHosted(value)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
   const storageStatus = useSyncExternalStore(
     subscribeFileStorageStatus,
     getFileStorageStatus,
@@ -165,9 +178,19 @@ export default function Layout() {
           <ThemeButton wide />
 
           <p className="px-3 text-[10px] leading-relaxed text-faint">
-            数据保存在本地文件
-            <br />
-            断开时自动使用浏览器缓存
+            {hosted === 'idb' ? (
+              <>
+                数据保存在这台浏览器
+                <br />
+                换设备请先导出备份
+              </>
+            ) : (
+              <>
+                数据保存在本地文件
+                <br />
+                断开时自动使用浏览器缓存
+              </>
+            )}
           </p>
         </div>
       </aside>
