@@ -272,9 +272,10 @@ export default function StoryReader() {
 
           {voiceMissing && (
             <p className="rounded-xl border border-accent/25 bg-accent-wash px-4 py-3 text-[11px] leading-relaxed text-accent">
-              系统里没有英文语音，朗读用不了（现在也不会拿中文语音去念英文）。Windows：设置 →
-              时间和语言 → 语音 → 添加语音 → English (United States)。macOS：系统设置 →
-              辅助功能 → 朗读内容 → 系统声音 → 管理声音。
+              这台设备没有英文语音，整段朗读用不了（不会拿中文语音去念英文）。单词还能听——查词时会改用在线发音。
+              想恢复朗读：安卓「设置 → 辅助功能 → 文字转语音输出」里换一个引擎并下载英语语音包；
+              iPhone「设置 → 辅助功能 → 朗读内容 → 声音 → 英语」；
+              Windows「设置 → 时间和语言 → 语音 → 添加语音」；macOS「系统设置 → 辅助功能 → 朗读内容」。
             </p>
           )}
 
