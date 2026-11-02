@@ -10,7 +10,8 @@ export interface SpeechOptions {
 export interface SpeechProvider {
   id: string
   available(): boolean
-  speak(text: string, options: SpeechOptions): Promise<void>
+  /** Resolves to whether any sound was actually produced. */
+  speak(text: string, options: SpeechOptions): Promise<boolean>
   stop(): void
 }
 
@@ -121,8 +122,8 @@ class WebSpeechProvider implements SpeechProvider {
     return typeof window !== 'undefined' && 'speechSynthesis' in window
   }
 
-  async speak(text: string, options: SpeechOptions): Promise<void> {
-    if (!this.available() || !text.trim()) return
+  async speak(text: string, options: SpeechOptions): Promise<boolean> {
+    if (!this.available() || !text.trim()) return false
     const synth = window.speechSynthesis
     synth.cancel()
 
@@ -133,8 +134,8 @@ class WebSpeechProvider implements SpeechProvider {
       options.voiceURI === undefined ? getPreferredVoiceURI() : options.voiceURI,
     )
     // No English voice means a Chinese voice would read English with the wrong
-    // phonetics. Staying silent is the honest failure.
-    if (!voice) return
+    // phonetics. Say so by returning false; the caller can try a recording.
+    if (!voice) return false
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.voice = voice
     utterance.lang = voice.lang
@@ -153,6 +154,7 @@ class WebSpeechProvider implements SpeechProvider {
       window.setTimeout(finish, 15000)
       synth.speak(utterance)
     })
+    return true
   }
 
   stop(): void {
@@ -162,8 +164,47 @@ class WebSpeechProvider implements SpeechProvider {
 
 export const speech: SpeechProvider = new WebSpeechProvider()
 
-export function speakWord(word: string, accent: Accent, rate: number): Promise<void> {
-  return speech.speak(word, { accent, rate }).catch(() => undefined)
+/**
+ * A pronunciation recording, used when the device has no English voice.
+ *
+ * Plenty of Android phones ship without a Google TTS engine, and Chromium then
+ * exposes an empty voice list — the Web Speech path silently produces nothing,
+ * which reads as "the speaker button is broken". A recording only covers single
+ * words, which is exactly the case that matters when looking one up.
+ */
+function playRecording(word: string, accent: Accent): Promise<boolean> {
+  const text = word.trim()
+  if (!text || /\s/.test(text)) return Promise.resolve(false)
+  const url = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&type=${
+    accent === 'uk' ? 2 : 1
+  }`
+  return new Promise((resolve) => {
+    const audio = new Audio(url)
+    audio.preload = 'auto'
+    let settled = false
+    const finish = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      resolve(ok)
+    }
+    audio.onplaying = () => finish(true)
+    audio.onerror = () => finish(false)
+    // Autoplay can still be refused; treat that as "no sound".
+    void audio.play().then(
+      () => finish(true),
+      () => finish(false),
+    )
+    window.setTimeout(() => finish(false), 6000)
+  })
+}
+
+export async function speakWord(word: string, accent: Accent, rate: number): Promise<void> {
+  try {
+    const spoken = await speech.speak(word, { accent, rate })
+    if (!spoken) await playRecording(word, accent)
+  } catch {
+    await playRecording(word, accent)
+  }
 }
 
 export interface Sentence {

@@ -446,3 +446,15 @@
 线上跑通后仍有两处噪音：设置页在 idb 模式下照样请求 `/api/storage` 与 `/api/storage/backups`，控制台留下 404，备份面板也白转一圈。`useStorageData` 的挂载 effect 现在先 `detectBackend()`，idb 模式直接跳过这两次请求并把 loading 归位。
 
 顺带记一下第一次部署踩的坑：**Pages 默认没开**，`configure-pages` 会以 `HttpError: Not Found` 失败，build 前几步其实都过了。用 `gh api --method POST repos/<owner>/<repo>/pages -f build_type=workflow` 开一次即可，之后 workflow 自动接管。
+
+### 手机上没有读音
+
+现象：手机上点喇叭没声音，也没有任何提示。
+
+原因在 `speech.ts`：`pickVoice` 找不到英语语音时直接 `return`——**刻意静音**（用中文语音读英文会走音）。问题是一大批安卓机没有 Google TTS 引擎，`getVoices()` 返回空数组，于是永远走这条静音分支，用户看起来就是「按钮坏了」。
+
+- `SpeechProvider.speak` 改为返回 `boolean`，表示「到底出声了没有」。
+- 新增 `playRecording()`：拿不到语音时，**单个单词**改用有道发音音频（`dictvoice?audio=…&type=1|2`，1 美音 / 2 英音）。整句朗读不做回退——录音接口只覆盖单词。
+- 桌面浏览器有语音，永远走本地合成，不会多发请求。
+
+验证：在无语音环境（stub `getVoices()` 返回 `[]`）下点设置页「试听」，发出 `https://dict.youdao.com/dictvoice?audio=serendipity&type=1`；接口实测 200 / `audio/mpeg` / 11 KB。
