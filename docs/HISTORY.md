@@ -392,3 +392,29 @@
 
 - 导入仍 POST 到 `/api/storage/import`，静态托管下会 404——**部署前必须改**，否则网页版只能进不能出。
 - 设置页「本地数据 / 自动备份」面板在 idb 模式下还没降级。
+
+## 2026-11-02 部署前的最后两块：导入不依赖服务端、设置页降级
+
+### 导入
+
+`handleImport` 以前必定 POST 到 `/api/storage/import`，静态托管下 404——网页版就成了「只能进不能出」的单向门。
+
+现在先 `await detectBackend()`：idb 模式下跳过请求，直接用零 revision 走 `replacePersistedKind`。没有服务端时浏览器就是落点，把快照写进 store 再让 `replacePersistedKind` 落盘，这一步本身就是导入。文件模式下行为一字未改。
+
+顺带把导入大小上限改成 `storageInfo?.maxImportBytes ?? 64 MB`——idb 模式拿不到服务端配置，以前是**完全不做检查**，一个几百 MB 的文件会整个读进内存。
+
+### 设置页
+
+`LocalDataPanel` 多了 `backend` 参数。idb 模式不再渲染文件列表（那会变成一排失败请求），换成一段说明：数据在浏览器里、没有每日备份、清理浏览数据或换设备就没了、建议定期导出。
+
+### 验证（静态托管，`python -m http.server` 跑 `dist/`）
+
+- 全程无 `pageerror`，无横幅。
+- 设置页显示「这一份是网页版，数据保存在当前浏览器里（IndexedDB）…」。
+- 导出 → 全新浏览器（空存储）→ 导入：提示「备份已导入，学习记录、阅读库、书架、故事、游戏已更新」。
+- 直接读 IndexedDB：导入前 `keyval-store` 里**一个键都没有**，导入后出现 6 个键（`lexicon-study-v1` / `-game-v1` / `-reader-v1` / `-reader-progress-v1` / `-library-v1` / `-stories-v1`），且 `lexicon-study-v1` 里被手工改过的 `settings.dailyNew = 33` 原样落地。
+- `npm test` 147 条、`tsc` / `oxlint` / `docs:check` 全绿。
+
+### 发现但未修
+
+- **导出不含进行中的这一局**：`Snapshot.game` 只有 `{ profiles, settings }`，`runs` 没进去。中途导出再导入，续局卡片就没了。对「网页当副本、靠导出保底」的定位来说这是真缺口，下一轮补。

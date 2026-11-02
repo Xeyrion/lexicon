@@ -14,6 +14,7 @@ import {
   flushPersistedStorage,
   replacePersistedKind,
 } from '../lib/storage'
+import { detectBackend } from '../lib/storageRemote'
 import {
   fetchBackupList,
   fetchStorageInfo,
@@ -210,14 +211,14 @@ export function useStorageData() {
     const file = input.files?.[0]
     if (!file) return
     // file.text() would pull the whole thing into memory before the server ever
-    // sees it, so reject the obvious cases up front. The limit comes from the
-    // server so the two can never drift apart.
-    const maxImportBytes = storageInfo?.maxImportBytes
+    // sees it, so reject the obvious cases up front. Without a server there is
+    // no configured limit, so fall back to the same order of magnitude.
+    const maxImportBytes = storageInfo?.maxImportBytes ?? 64 * 1024 * 1024
     if (typeof maxImportBytes === 'number' && file.size > maxImportBytes) {
       input.value = ''
       setMessage({
         type: 'error',
-        text: `这个文件约 ${(file.size / 1024 / 1024).toFixed(1)} MB，超过本地服务的单次导入上限 ${Math.round(
+        text: `这个文件约 ${(file.size / 1024 / 1024).toFixed(1)} MB，超过单次导入上限 ${Math.round(
           maxImportBytes / 1024 / 1024,
         )} MB。请确认选对了文件。`,
       })
@@ -305,17 +306,39 @@ export function useStorageData() {
         data.game = buildGamePayload(snapshot.game)
       }
 
-      let result
-      try {
-        result = await importStorageData({ baseRevisions, data })
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('另一个页面更新')) {
-          await loadStorageInfo()
-          setMessage({ type: 'error', text: '数据已被另一个页面更新，请刷新页面后重新导入。' })
+      // A hosted copy has no server to commit to, so the browser store *is* the
+      // destination: applying the snapshot to the stores below and letting
+      // replacePersistedKind write it is the whole import. Revisions are zero
+      // because nothing else can be writing.
+      const backend = await detectBackend()
+      let result: {
+        revisions: Partial<Record<StorageKind, number>>
+        quarantined: string[]
+      }
+      if (backend === 'idb') {
+        result = {
+          revisions: {
+            study: 0,
+            reader: 0,
+            'reader-progress': 0,
+            library: 0,
+            stories: 0,
+            game: 0,
+          },
+          quarantined: [],
+        }
+      } else {
+        try {
+          result = await importStorageData({ baseRevisions, data })
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('另一个页面更新')) {
+            await loadStorageInfo()
+            setMessage({ type: 'error', text: '数据已被另一个页面更新，请刷新页面后重新导入。' })
+            return
+          }
+          setMessage({ type: 'error', text: error instanceof Error ? error.message : '导入失败。' })
           return
         }
-        setMessage({ type: 'error', text: error instanceof Error ? error.message : '导入失败。' })
-        return
       }
 
       // Apply to the in-memory stores first. replacePersistedKind() then cancels

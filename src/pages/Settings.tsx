@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Check,
@@ -29,6 +29,7 @@ import { Section, Segmented, Toggle } from '../components/settings/primitives'
 import { useStorageData } from '../hooks/useStorageData'
 import { inspectStudyData } from '../lib/health'
 import { speakWord } from '../lib/speech'
+import { detectBackend, type Backend } from '../lib/storageRemote'
 import { useAppStore } from '../store/appStore'
 import { useGameStore } from '../store/gameStore'
 import type { Accent, ThemeMode } from '../types'
@@ -52,6 +53,18 @@ export default function Settings() {
   const progress = useAppStore((state) => state.progress)
   const days = useAppStore((state) => state.days)
   const clockIssues = useMemo(() => inspectStudyData(progress, days), [progress, days])
+  // A hosted copy has no data directory to show; the panel swaps to a note
+  // about browser storage instead of reporting a failed request.
+  const [backend, setBackend] = useState<Backend | null>(null)
+  useEffect(() => {
+    let alive = true
+    void detectBackend().then((value) => {
+      if (alive) setBackend(value)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
   const {
     message,
     setMessage,
@@ -298,6 +311,7 @@ export default function Settings() {
           </div>
 
           <LocalDataPanel
+            backend={backend}
             info={storageInfo}
             loading={storageLoading}
             error={storageError}

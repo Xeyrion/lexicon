@@ -1,5 +1,6 @@
 import { RefreshCw } from 'lucide-react'
 import type { StorageInfo, StorageKind } from '../../lib/storageInfo'
+import type { Backend } from '../../lib/storageRemote'
 import { formatBytes } from './format'
 import { STORAGE_FILES } from './constants'
 
@@ -8,6 +9,7 @@ const LIMIT_PRESETS_MB = [16, 32, 64, 128, 256, 512]
 const MB = 1024 * 1024
 
 export function LocalDataPanel({
+  backend,
   info,
   loading,
   error,
@@ -17,6 +19,7 @@ export function LocalDataPanel({
   onChangeLimit,
   limitBusy,
 }: {
+  backend: Backend | null
   info: StorageInfo | null
   loading: boolean
   error: string | null
@@ -29,6 +32,22 @@ export function LocalDataPanel({
   const corrupted = info
     ? STORAGE_FILES.filter(({ kind }) => info.files[kind].corrupted)
     : []
+
+  // Hosted copy: there is no data directory, no daily backup and no revision
+  // guard, so showing file rows would only produce a wall of failed requests.
+  if (backend === 'idb') {
+    return (
+      <div className="mt-6 rounded-2xl border border-line bg-paper-deep/25 p-4">
+        <p className="text-sm text-ink">本地数据</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-faint">
+          这一份是网页版，数据保存在当前浏览器里（IndexedDB），没有服务器，也没有每日自动备份。
+        </p>
+        <p className="mt-2 text-[11px] leading-relaxed text-faint">
+          刷新页面、关闭浏览器都不影响。但清理浏览数据、换浏览器或换设备之后就看不到了——建议隔一段时间用上面的「导出备份」存一份。
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="mt-6 rounded-2xl border border-line bg-paper-deep/25 p-4">
