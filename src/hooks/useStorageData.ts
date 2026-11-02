@@ -132,27 +132,43 @@ export function useStorageData() {
     const requestId = storageRequestId.current + 1
     storageRequestId.current = requestId
     let cancelled = false
-    void fetchStorageInfo().then(
-      (info) => {
-        if (cancelled || requestId !== storageRequestId.current) return
-        setStorageInfo(info)
+
+    void detectBackend().then((backend) => {
+      if (cancelled || requestId !== storageRequestId.current) return
+      // A hosted copy has no data directory to read. Asking anyway only fills
+      // the console with 404s and reports a failure for a service that is not
+      // supposed to exist here.
+      if (backend === 'idb') {
+        setStorageInfo(null)
         setStorageError(null)
         setStorageLoading(false)
-      },
-      (error: unknown) => {
-        if (cancelled || requestId !== storageRequestId.current) return
-        setStorageInfo(null)
-        setStorageError(error instanceof Error ? error.message : '读取本地数据信息失败。')
-        setStorageLoading(false)
-      },
-    )
-    // Load the backup list here instead of calling loadBackups() so the effect
-    // does not flip the loading flag synchronously on mount.
-    const backupId = backupRequestId.current + 1
-    backupRequestId.current = backupId
-    void applyBackups(backupId, true).finally(() => {
-      if (backupId === backupRequestId.current) setBackupLoading(false)
+        setBackupLoading(false)
+        return
+      }
+
+      void fetchStorageInfo().then(
+        (info) => {
+          if (cancelled || requestId !== storageRequestId.current) return
+          setStorageInfo(info)
+          setStorageError(null)
+          setStorageLoading(false)
+        },
+        (error: unknown) => {
+          if (cancelled || requestId !== storageRequestId.current) return
+          setStorageInfo(null)
+          setStorageError(error instanceof Error ? error.message : '读取本地数据信息失败。')
+          setStorageLoading(false)
+        },
+      )
+      // Load the backup list here instead of calling loadBackups() so the effect
+      // does not flip the loading flag synchronously on mount.
+      const backupId = backupRequestId.current + 1
+      backupRequestId.current = backupId
+      void applyBackups(backupId, true).finally(() => {
+        if (backupId === backupRequestId.current) setBackupLoading(false)
+      })
     })
+
     return () => {
       cancelled = true
     }

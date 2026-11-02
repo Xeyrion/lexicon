@@ -440,3 +440,9 @@
 
 - 两种构建的产物路径分别是 `/assets/...` 与 `./assets/...`。
 - 把 `dist/` 放进 `lexicon/` 子目录用静态服务器跑（模拟 Pages 项目站）：页面正常渲染、`backend=idb`、service worker 已接管，**唯一的 4xx 是探测用的 `/api/storage` 404**，属于预期。
+
+### 首次部署后的小修
+
+线上跑通后仍有两处噪音：设置页在 idb 模式下照样请求 `/api/storage` 与 `/api/storage/backups`，控制台留下 404，备份面板也白转一圈。`useStorageData` 的挂载 effect 现在先 `detectBackend()`，idb 模式直接跳过这两次请求并把 loading 归位。
+
+顺带记一下第一次部署踩的坑：**Pages 默认没开**，`configure-pages` 会以 `HttpError: Not Found` 失败，build 前几步其实都过了。用 `gh api --method POST repos/<owner>/<repo>/pages -f build_type=workflow` 开一次即可，之后 workflow 自动接管。
