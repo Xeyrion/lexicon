@@ -38,7 +38,7 @@
 
 - Node.js：`^20.19.0 || >=22.12.0`（Vite 8 的要求，可用 `node -v` 检查）
 - npm：随 Node.js 一起安装
-- Windows 可直接使用 `start.cmd`；其他平台使用下面的 npm 命令
+- Windows 双击 `start.cmd` 即可；其他平台使用下面的 npm 命令
 
 ## 启动
 
@@ -48,18 +48,26 @@
 
 1. 查找 Node.js，并检查版本是否满足要求；
 2. 在缺少 `node_modules` 时执行 `npm install`；
-3. 启动本地开发服务器，并打开 <http://127.0.0.1:5173>。
+3. 构建，然后把 `dist/` 和本地数据接口一起跑起来，打开 <http://127.0.0.1:5173>。
 
-端口固定为 `5173`，host 固定为 `127.0.0.1`。如果启动失败，窗口会停住并显示原因，不会一闪而过。
+跑的是**构建产物**，所以首屏快、内存小。每次双击会多花一两秒重新构建。
 
-### 手动启动
+### 改代码时
 
 ```powershell
-npm install
 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-然后打开 <http://127.0.0.1:5173>。请通过这个本地服务访问应用，不要直接双击 `dist/index.html`；否则保存数据的本地接口不可用，只能退回到浏览器缓存。
+开发服务器按需编译、热更新，但每次打开都要现编译，第一次进页面会慢一些。
+
+### 手动启动（等价于 start.cmd）
+
+```powershell
+npm install
+npm start
+```
+
+两种方式都固定 `5173` 端口和 `127.0.0.1`，同一时间只能开一个。请通过本地服务访问应用，不要直接双击 `dist/index.html`；否则保存数据的本地接口不可用，只能退回到浏览器缓存。
 
 ## 数据保存在哪里
 
@@ -72,6 +80,7 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ├── reader-progress.json  文章与章节的阅读进度
 ├── library.json          书架：书籍与章节正文
 ├── stories.json          故事：内容、存档与结局图鉴
+├── game.json             游戏：各游戏进度、成就与开局设置
 ├── config.json           设置页里可调的本机配置（目前只有导入上限）
 └── backups\              自动每日备份
 ```
@@ -103,7 +112,7 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 - **自动备份浏览与恢复（已接入）**：在「设置 → 数据 → 自动备份」可以按 `study` / `reader` / `reader-progress` 分类查看备份列表、大小与时间，点击「恢复」会用所选备份覆盖对应数据。恢复前会自动把当前文件保存为一份安全备份（`*-restore-*.json`），恢复后页面会重新加载。当前版本**不提供**备份删除 UI，如需删除旧备份请到备份目录手动操作。
 - **损坏文件隔离（quarantine）**：如果某个数据文件损坏，设置页「本地数据」会标记为「损坏」并提供「隔离损坏文件」。隔离会将文件重命名为 `<kind>.corrupt-<时间戳>-<pid>.json` 保留在数据目录中，不会直接删除。隔离后页面会重新加载，可再从自动备份或手动 JSON 备份恢复。
 - **查看占用**：在「设置 → 数据 → 本地数据」可以看到数据目录、备份目录、各数据文件大小、备份总份数与总大小。如果觉得 30 份偏多，可以直接到备份目录手动删除旧文件。
-- **清空数据语义**：「清除全部数据」只会删除主数据文件（`study.json`、`reader.json`、`reader-progress.json`），**不会删除** `backups/` 目录。清空弹窗会明确提示备份仍会保留，且需要彻底清理时由用户手动删除备份目录。确认弹窗支持取消（Escape/遮罩/取消按钮）。
+- **清空数据语义**：「清除全部数据」只会删除主数据文件（`study.json`、`reader.json`、`reader-progress.json`、`game.json`），**不会删除** `backups/` 目录。清空弹窗会明确提示备份仍会保留，且需要彻底清理时由用户手动删除备份目录。确认弹窗支持取消（Escape/遮罩/取消按钮）。
 - **手动恢复自动备份**：也可以先关闭应用，再把需要恢复的备份文件复制回原文件名，例如把 `backups/study-2026-10-24.json` 覆盖为 `study.json`。备份文件本身是完整的数据信封（包含 `appId`、`revision` 和 `data`），不要只截取其中一部分。
 
 ## 书籍模式
@@ -125,20 +134,23 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 - **朗读**：每个节点都能整段朗读，念到哪句哪句就亮起来，可以边听边看。语速沿用设置里的「发音 → 语速」。
 - **存档**：每次选择都会保存；「撤销一步」连变量一起回滚；结局会解锁进图鉴（隐藏结局只计入总数，不显示名字）。
 - **变量写法**：`effects` 有两种——`{"var":"coins","set":true}` 赋值、`{"var":"coins","add":1}` 累加（负数即扣减）；`requires` 支持 `is` / `gte` / `lte` 和 `all` / `any` / `not` 组合。
-- **变量写法**：`effects` 有两种——`{"var":"coins","set":true}` 赋值、`{"var":"coins","add":1}` 累加（负数即扣减）；`requires` 支持 `is` / `gte` / `lte` 和 `all` / `any` / `not` 组合。
 - **自己写**：`npm run story:check <file>` 校验、`npm run story:map <file>` 看分支树，或在「故事 → 导出模板」拿一份带全部字段的模板。导入时校验不过会直接拒绝并列出问题。
 
 ## 常用脚本
 
 ```powershell
+npm start            # 构建后启动（日常使用，跑 dist/）
 npm run dev          # 启动开发服务器（同时提供本地数据接口）
 npm run build        # 类型检查并构建到 dist/
 npm run preview      # 预览已构建的版本
 npm run lint         # oxlint
-npm test             # Vitest（校验器与备份解析的纯函数测试）
+npm test             # Vitest：校验器、备份解析，以及本地数据接口的集成测试
 npm run test:watch   # Vitest 监听模式
 npm run dicts        # 重建 public/data/books 词书数据（需要网络）
 npm run reader-data  # 重建 public/data/reader 阅读词典数据（需要网络）
+npm run game:data    # 从 scripts/game-data/*.xlsx 重建游戏数据（不需要网络）
+npm run translate:check  # 校验游戏英译的 id、占位符和残留中文
+npm run translate:doc    # 重新生成 docs/translate/PROGRESS.md 进度表
 npm run icons        # 重新生成 PWA 图标
 npm run smoke:reader # 无头 Chrome 跑一遍阅读页（需先启动 dev 服务）
 npm run smoke:app    # 首启引导 / 键盘查词 / 时间异常提示（加 --force-clean 会清数据）
@@ -146,11 +158,8 @@ npm run smoke:books  # 造一本 EPUB 走完导入、改目录、章节阅读与
 npm run smoke:stories # 内置短篇玩到结局、撤销一步、检查图鉴解锁
 npm run story:check  # 校验一个故事 JSON（作者用）
 npm run story:map    # 打印故事分支树（作者用）
-npm run smoke:app    # 首启引导 / 键盘查词 / 时间异常提示（加 --force-clean 会清数据）
-npm run smoke:books  # 造一本 EPUB 走完导入、改目录、章节阅读与跳转
-npm run smoke:stories # 内置短篇玩到结局、撤销一步、检查图鉴解锁
-npm run story:check  # 校验一个故事 JSON（作者用）
-npm run story:map    # 打印故事分支树（作者用）
+npm run shots        # 重生成 docs/images 截图（会清空数据目录，只对临时目录用）
+npm run docs:check   # 检查 README / docs 是否与代码脱节
 ```
 
 `dicts` 和 `reader-data` 会从 ECDICT 与 ipa-dict 拉取源数据（版本已固定到具体 commit，产物可复现），耗时取决于网络；生成结果在 `public/data/`。脚本也支持通过 `LEXICON_RAW_DIR` 环境变量复用本地原始数据缓存（旧名 `LEARNWORD_RAW_DIR` 仍兼容，新名优先）。
@@ -159,15 +168,15 @@ npm run story:map    # 打印故事分支树（作者用）
 
 ```text
 src/
-  pages/        每个路由一个页面（今日 / 学习 / 阅读 / 书架 / 故事 / 统计 / 设置）
+  pages/        每个路由一个页面；study/ 与 reader/ 放该页拆出来的会话视图与工具
   components/   按领域分目录：reader、library、story、settings
   hooks/        跨页面复用的状态逻辑（词典、存储、草稿）
-  lib/          纯函数：校验、EPUB/Markdown 解析、故事引擎、FSRS、统计、存储适配
-  store/        Zustand store，每个数据文件一个（study / reader / library / stories）
+  lib/          纯函数：validation/ 按数据域拆分、EPUB/Markdown 解析、故事引擎、FSRS、统计、存储适配
+  store/        Zustand store，每个数据文件一个（study / reader / library / stories / game）
   data/         随应用打包的内容（内置短篇）
-server/         本地数据接口：读写、原子写、每日备份、事务式导入、损坏隔离
+server/         本地数据接口：storage/ 下按 core / config / envelope / backups / http 分层
 scripts/        词典构建、故事作者工具、无头浏览器冒烟与截图
-docs/           审计与修复记录、阶段计划、README 截图
+docs/           ISSUES.md（未决问题）、HISTORY.md（每轮修复记录）、阶段计划、截图
 public/data/    词书与阅读词典（构建产物，已提交，保证离线可用）
 ```
 
@@ -222,7 +231,7 @@ npm -v
 - 数据以整份 JSON 文件读写；阅读文章很多或很长时，启动和保存会变慢。
 - 导入备份已有基本回滚保护，但仍不是严格意义上的跨多文件原子事务，导入后建议刷新页面确认结果。
 - 备份删除需手动到备份目录操作（暂未提供 UI 删除）。
-- 有 103 条单元测试和 4 个无头浏览器冒烟脚本，但**没有 CI**，需要手动跑。
+- 有单元测试、本地接口集成测试和 4 个无头浏览器冒烟脚本，但**没有 CI**，需要手动跑（`npm test` 会顺带检查文档是否过期）。
 - 修改后立刻刷新页面，有极小概率丢掉最后一次写入（页面卸载时的落盘可能被导航打断）。
 - 发音和朗读用的是**系统语音**（Web Speech API），不是应用自带的。没装英文语音时功能会明确提示并引导安装，不会拿中文语音去念英文。
 

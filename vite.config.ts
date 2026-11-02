@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { lexiconStorage } from './server/dataStorage.ts'
@@ -7,6 +8,14 @@ import { lexiconStorage } from './server/dataStorage.ts'
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? '0.1.0'),
+  },
+  resolve: {
+    alias: {
+      '@remake/core': fileURLToPath(new URL('./src/game/remake/core/src', import.meta.url)),
+      '@remake/condition': fileURLToPath(new URL('./src/game/remake/condition', import.meta.url)),
+      '@remake/vitex': fileURLToPath(new URL('./src/game/remake/vitex', import.meta.url)),
+      '@remake/data': fileURLToPath(new URL('./src/game/data', import.meta.url)),
+    },
   },
   plugins: [
     lexiconStorage(),

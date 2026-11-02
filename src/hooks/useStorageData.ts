@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import {
+  buildGamePayload,
   buildLibraryPayload,
   buildStoriesPayload,
   buildReaderPayload,
@@ -31,7 +32,9 @@ import {
   waitForStoriesHydration,
 } from '../lib/useReaderHydrated'
 import { DEFAULT_SETTINGS, useAppStore } from '../store/appStore'
+import { useGameStore } from '../store/gameStore'
 import { useLibraryStore } from '../store/libraryStore'
+import { waitForGameHydration } from '../game/useGameHydrated'
 import { useStoryStore } from '../store/storyStore'
 import {
   articlesWithProgress,
@@ -167,11 +170,16 @@ export function useStorageData() {
       setMessage({ type: 'error', text: '故事还在加载，请稍后再试。' })
       return
     }
+    if (!(await waitForGameHydration())) {
+      setMessage({ type: 'error', text: '游戏数据还在加载，请稍后再试。' })
+      return
+    }
     const storyState = useStoryStore.getState()
     const reader = useReaderStore.getState()
+    const gameState = useGameStore.getState()
     const data: Snapshot = {
       ...snapshot(),
-      version: 4,
+      version: 5,
       reader: {
         articles: articlesWithProgress(reader.articles),
         settings: reader.settings,
@@ -182,6 +190,10 @@ export function useStorageData() {
         saves: storyState.saves,
         meta: storyState.meta,
       },
+      game: {
+        profiles: gameState.profiles,
+        settings: gameState.settings,
+      },
     }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -190,7 +202,7 @@ export function useStorageData() {
     anchor.download = `lexicon-backup-${new Date().toISOString().slice(0, 10)}.json`
     anchor.click()
     URL.revokeObjectURL(url)
-    setMessage({ type: 'ok', text: '备份已导出，包含学习记录与阅读库。' })
+    setMessage({ type: 'ok', text: '备份已导出，包含学习记录、阅读库与游戏进度。' })
   }
 
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -246,6 +258,10 @@ export function useStorageData() {
         setMessage({ type: 'error', text: '故事还在加载，请稍后再试。' })
         return
       }
+      if (snapshot.game && !(await waitForGameHydration())) {
+        setMessage({ type: 'error', text: '游戏数据还在加载，请稍后再试。' })
+        return
+      }
 
       // Ensure pending local writes are persisted before we read revisions.
       await flushPersistedStorage()
@@ -268,6 +284,9 @@ export function useStorageData() {
       if (storageInfo?.files.stories.exists && typeof storageInfo.files.stories.revision === 'number') {
         baseRevisions.stories = storageInfo.files.stories.revision
       }
+      if (storageInfo?.files.game.exists && typeof storageInfo.files.game.revision === 'number') {
+        baseRevisions.game = storageInfo.files.game.revision
+      }
 
       const data: Partial<Record<StorageKind, unknown>> = {
         study: buildStudyPayload(snapshot.study),
@@ -281,6 +300,9 @@ export function useStorageData() {
       }
       if (snapshot.stories) {
         data.stories = buildStoriesPayload(snapshot.stories)
+      }
+      if (snapshot.game) {
+        data.game = buildGamePayload(snapshot.game)
       }
 
       let result
@@ -336,10 +358,19 @@ export function useStorageData() {
         await replacePersistedKind('stories', data.stories, result.revisions.stories ?? 1)
       }
 
+      if (snapshot.game) {
+        useGameStore.setState({
+          profiles: snapshot.game.profiles,
+          ...(snapshot.game.settings ? { settings: snapshot.game.settings } : {}),
+        })
+        await replacePersistedKind('game', data.game, result.revisions.game ?? 1)
+      }
+
       const parts = ['学习记录']
       if (snapshot.reader) parts.push('阅读库')
       if (snapshot.library) parts.push('书架')
       if (snapshot.stories) parts.push('故事')
+      if (snapshot.game) parts.push('游戏')
       setMessage({
         type: 'ok',
         text: result.quarantined.length > 0

@@ -39,3 +39,8 @@ dist-ssr
 # Assistant workspace data (not part of the app)
 .workbuddy-ai/
 /.tmpcheck/
+
+# Third-party reference material (never part of the app; the repo has a public remote)
+/1in8b_技术研究.zip
+/1in8b_技术研究/
+/_refs/

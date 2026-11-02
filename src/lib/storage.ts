@@ -7,7 +7,13 @@ const PENDING_PREFIX = 'lexicon:pending:'
 const DELETED_PREFIX = 'lexicon:deleted:'
 const REVISION_PREFIX = 'lexicon:revision:'
 
-export type PersistedKind = 'study' | 'reader' | 'reader-progress' | 'library' | 'stories'
+export type PersistedKind =
+  | 'study'
+  | 'reader'
+  | 'reader-progress'
+  | 'library'
+  | 'stories'
+  | 'game'
 
 type Kind = PersistedKind
 
@@ -17,6 +23,7 @@ const CACHE_KEYS: Record<Kind, { current: string; legacy?: string }> = {
   'reader-progress': { current: 'lexicon-reader-progress-v1' },
   library: { current: 'lexicon-library-v1' },
   stories: { current: 'lexicon-stories-v1' },
+  game: { current: 'lexicon-game-v1' },
 }
 
 interface Controller {
@@ -30,6 +37,8 @@ interface Controller {
   timer: number | null
   chain: Promise<void>
   conflict: boolean
+  /** Last value this controller loaded or successfully wrote, to drop no-op writes. */
+  lastValue: string | null
 }
 
 interface FileEnvelope {
@@ -43,21 +52,42 @@ type FileResult =
   | { status: 'ok'; data: unknown; revision: number }
   | { status: 'missing' }
   | { status: 'unavailable' }
+  /** The service answered, but not before our read deadline: the file exists
+   *  and may be newer than anything we hold. Treating this as "no data" is
+   *  what lets an empty snapshot overwrite it. */
+  | { status: 'timeout' }
   | { status: 'error'; message: string }
 
 export type FileStorageStatus = 'unknown' | 'online' | 'offline' | 'error'
+
+const KIND_LABELS: Record<Kind, string> = {
+  study: '学习数据',
+  reader: '阅读数据',
+  'reader-progress': '阅读进度',
+  library: '书架数据',
+  stories: '故事数据',
+  game: '游戏数据',
+}
 
 const controllers = new Set<Controller>()
 const statusListeners = new Set<() => void>()
 const cacheListeners = new Set<() => void>()
 const hydrationListeners = new Set<() => void>()
+const unreadListeners = new Set<() => void>()
 const kindStatuses = new Map<Kind, { status: FileStorageStatus; error: string }>()
+/**
+ * Kinds whose file could not be read this session. Writes for those kinds stay
+ * off until a read actually succeeds, because the in-memory state may be empty
+ * and would replace content we never saw. Separate from the hydration gate:
+ * hydration finishes "successfully" with an empty snapshot in this case.
+ */
+const unreadKinds = new Set<Kind>()
 let listenersInstalled = false
 let warnedOffline = false
 // Two independent reasons to stop writing: the tab lock says this tab is not
 // the writer, or hydration timed out and we must not overwrite an unread file.
 let tabWriterEnabled = true
-const hydrationBlocks = new Set<'study' | 'reader'>()
+const hydrationBlocks = new Set<Kind>()
 let hydrationWriteBlocked = false
 let cacheWriteFailed = false
 let fileStorageStatus: FileStorageStatus = 'unknown'
@@ -119,10 +149,7 @@ export function setStorageWriterEnabled(enabled: boolean): void {
  * replacing a file we never managed to read. Keyed so the study and reader
  * gates cannot unblock each other.
  */
-export function setHydrationWriteBlocked(
-  reason: 'study' | 'reader',
-  blocked: boolean,
-): void {
+export function setHydrationWriteBlocked(reason: Kind, blocked: boolean): void {
   if (blocked) hydrationBlocks.add(reason)
   else hydrationBlocks.delete(reason)
   const next = hydrationBlocks.size > 0
@@ -141,6 +168,44 @@ export function subscribeHydrationWriteBlocked(listener: () => void): () => void
   return () => hydrationListeners.delete(listener)
 }
 
+function notifyUnread(): void {
+  unreadListeners.forEach((listener) => listener())
+}
+
+function markUnread(kind: Kind): void {
+  if (unreadKinds.has(kind)) return
+  unreadKinds.add(kind)
+  // Drop anything queued for this kind: writing now would persist a snapshot
+  // built on top of data we failed to load.
+  controllers.forEach((controller) => {
+    if (controller.kind !== kind) return
+    if (controller.timer !== null) {
+      window.clearTimeout(controller.timer)
+      controller.timer = null
+    }
+  })
+  notifyUnread()
+}
+
+function clearUnread(kind: Kind): void {
+  if (!unreadKinds.delete(kind)) return
+  notifyUnread()
+}
+
+/**
+ * Human-readable list of the kinds that failed to load, e.g. `学习数据、书架数据`.
+ * Returns a string so it can be read through `useSyncExternalStore` without a
+ * fresh array on every call.
+ */
+export function getUnreadLabel(): string {
+  return [...unreadKinds].map((kind) => KIND_LABELS[kind]).join('、')
+}
+
+export function subscribeUnreadKinds(listener: () => void): () => void {
+  unreadListeners.add(listener)
+  return () => unreadListeners.delete(listener)
+}
+
 export function getCacheWriteFailed(): boolean {
   return cacheWriteFailed
 }
@@ -150,12 +215,12 @@ export function subscribeCacheWriteFailed(listener: () => void): () => void {
   return () => cacheListeners.delete(listener)
 }
 
-function writesBlocked(): boolean {
-  return !tabWriterEnabled || hydrationWriteBlocked
+function writesBlocked(kind: Kind): boolean {
+  return !tabWriterEnabled || hydrationWriteBlocked || unreadKinds.has(kind)
 }
 
 function applyWriterState(): void {
-  if (!writesBlocked()) return
+  if (tabWriterEnabled && !hydrationWriteBlocked) return
   controllers.forEach((controller) => {
     if (controller.timer !== null) {
       window.clearTimeout(controller.timer)
@@ -328,6 +393,16 @@ async function clearCache(keys: { current: string; legacy?: string }): Promise<v
   if (keys.legacy) removeLocal(keys.legacy)
 }
 
+/**
+ * The local server only knows the data kinds it was started with, so a kind
+ * added since then fails with "未知的数据类型" until the app is restarted.
+ * Say that plainly instead of leaving a scary-looking storage error.
+ */
+function describeFileError(kind: Kind, message: string): string {
+  if (!message.includes('未知的数据类型')) return message
+  return `${kind}.json：本地服务不认识这个数据文件，通常是它还在跑旧版本。请重启应用（npm run dev 或 start.cmd）后重新加载页面。`
+}
+
 async function readFile(controller: Controller): Promise<FileResult> {
   const abort = new AbortController()
   const timeout = window.setTimeout(() => abort.abort(), 1200)
@@ -347,7 +422,7 @@ async function readFile(controller: Controller): Promise<FileResult> {
       } | null
       const message =
         typeof payload?.error === 'string'
-          ? payload.error
+          ? describeFileError(controller.kind, payload.error)
           : `本地存储服务返回 ${response.status}`
       reportFileStatus(controller.kind, 'error', message)
       return { status: 'error', message }
@@ -368,6 +443,12 @@ async function readFile(controller: Controller): Promise<FileResult> {
     storeRevision(controller.kind, payload.revision)
     return { status: 'ok', data: payload.data, revision: payload.revision }
   } catch {
+    if (abort.signal.aborted) {
+      // The service is up (or at least reachable) but slower than the read
+      // deadline. Distinguishing this from "unreachable" matters: a write would
+      // go through, so we must not pretend we have the file's contents.
+      return { status: 'timeout' }
+    }
     reportFileStatus(controller.kind, 'offline')
     return { status: 'unavailable' }
   } finally {
@@ -438,7 +519,7 @@ async function writeFile(controller: Controller, value: string): Promise<boolean
 
     const message =
       typeof payload?.error === 'string'
-        ? payload.error
+        ? describeFileError(controller.kind, payload.error)
         : `本地存储服务返回 ${response.status}`
     reportFileStatus(controller.kind, 'error', message)
     return false
@@ -470,7 +551,7 @@ async function deleteFile(kind: Kind): Promise<boolean> {
     } | null
     const message =
       typeof payload?.error === 'string'
-        ? payload.error
+        ? describeFileError(kind, payload.error)
         : `删除本地数据失败：${response.status}`
     reportFileStatus(kind, 'error', message)
     return false
@@ -483,6 +564,13 @@ async function deleteFile(kind: Kind): Promise<boolean> {
 }
 
 async function load(controller: Controller): Promise<string | null> {
+  const value = await loadFromSources(controller)
+  // Remember it: a setItem with this exact snapshot needs no file write.
+  controller.lastValue = value
+  return value
+}
+
+async function loadFromSources(controller: Controller): Promise<string | null> {
   const keys = CACHE_KEYS[controller.kind]
 
   if (readFlag(DELETED_PREFIX, controller.kind)) {
@@ -514,6 +602,21 @@ async function load(controller: Controller): Promise<string | null> {
       warnedOffline = false
       return cached
     }
+    // A 409 here usually means the previous session's write did land and only
+    // the dirty flag survived (closed tab, aborted pagehide). If the file
+    // already holds exactly this snapshot there is nothing to reconcile:
+    // adopt it and clear the conflict instead of blocking writes.
+    if (controller.conflict) {
+      const remote = await readFile(controller)
+      if (remote.status === 'ok' && JSON.stringify(remote.data) === cached) {
+        controller.conflict = false
+        controller.pending = null
+        setPending(controller.kind, false)
+        clearUnread(controller.kind)
+        await writeCache(controller, cached)
+        return cached
+      }
+    }
     // On 409 writeFile has cleared the dirty flag and marked this controller
     // as blocked; otherwise keep the flag/pending value for the next retry.
     return cached
@@ -525,6 +628,7 @@ async function load(controller: Controller): Promise<string | null> {
     const value = JSON.stringify(remote.data)
     controller.conflict = false
     warnedOffline = false
+    clearUnread(controller.kind)
     // A newer value may have been scheduled while the file was loading. In
     // that case keep the cache and the dirty flag for that value instead of
     // overwriting them with the older remote snapshot.
@@ -539,6 +643,7 @@ async function load(controller: Controller): Promise<string | null> {
     clearStoredRevision(controller.kind)
     controller.conflict = false
     warnedOffline = false
+    clearUnread(controller.kind)
     if (cached != null) {
       await writeFile(controller, cached)
       return cached
@@ -549,6 +654,20 @@ async function load(controller: Controller): Promise<string | null> {
   if (remote.status === 'error') {
     console.warn(`本地数据文件读取失败：${remote.message}`)
     return cached
+  }
+
+  if (remote.status === 'timeout') {
+    if (cached != null) {
+      // The cache is at least as new as anything this browser wrote, and the
+      // stored revision still guards against another window's changes.
+      console.warn('[Lexicon] 数据文件读取超时，已使用浏览器缓存。')
+      return cached
+    }
+    // Nothing to fall back on: keep the app usable, but never write until a
+    // read succeeds, or an empty snapshot would replace the real file.
+    console.warn('[Lexicon] 数据文件读取超时，已暂停保存该数据。')
+    markUnread(controller.kind)
+    return null
   }
 
   if (!warnedOffline) {
@@ -577,8 +696,9 @@ async function flush(controller: Controller): Promise<void> {
   if (controller.conflict) return
   // Keep flushing while the tab lock has paused us (yieldToOtherTab relies on
   // this to persist before handing the lock over), but never while hydration is
-  // unresolved: the snapshot in memory may still be empty.
-  if (hydrationWriteBlocked) return
+  // unresolved or this kind failed to load: the snapshot in memory may still be
+  // empty.
+  if (hydrationWriteBlocked || unreadKinds.has(controller.kind)) return
 
   // Keep the pending value until the file write has actually succeeded. A new
   // value may arrive while we await IndexedDB/fetch, so compare after writing.
@@ -602,6 +722,8 @@ async function flush(controller: Controller): Promise<void> {
 
   reportCacheFailure(false)
 
+  controller.lastValue = value
+
   if (controller.pending === value) {
     controller.pending = null
     setPending(controller.kind, false)
@@ -614,7 +736,10 @@ async function flush(controller: Controller): Promise<void> {
 }
 
 function schedule(controller: Controller, value: string): void {
-  if (writesBlocked() || controller.conflict) return
+  if (writesBlocked(controller.kind) || controller.conflict) return
+  // Persist middleware re-sets the hydrated state on every load; writing that
+  // back would bump the file revision for nothing and can race another tab.
+  if (controller.pending === null && value === controller.lastValue) return
   controller.pending = value
   // Mark dirty synchronously so a crash during the debounce window is
   // recoverable from the browser cache on next startup.
@@ -629,6 +754,7 @@ async function remove(controller: Controller): Promise<void> {
     controller.timer = null
   }
   controller.pending = null
+  controller.lastValue = null
   setDeleted(controller.kind, true)
   const deleted = await deleteFile(controller.kind)
   if (deleted) {
@@ -639,6 +765,7 @@ async function remove(controller: Controller): Promise<void> {
   await clearCache(keys)
   setPending(controller.kind, false)
   controller.chain = Promise.resolve()
+  clearUnread(controller.kind)
 }
 
 export function createFileBackedStorage(options: {
@@ -657,6 +784,7 @@ export function createFileBackedStorage(options: {
     timer: null,
     chain: Promise.resolve(),
     conflict: false,
+    lastValue: null,
   }
   controllers.add(controller)
   installListeners()
@@ -677,6 +805,7 @@ export async function clearPersistedKind(kind: Kind): Promise<void> {
       controller.timer = null
     }
     controller.pending = null
+    controller.lastValue = null
     controller.chain = Promise.resolve()
   }
   setDeleted(kind, true)
@@ -689,6 +818,7 @@ export async function clearPersistedKind(kind: Kind): Promise<void> {
   }
   await clearCache(keys)
   setPending(kind, false)
+  clearUnread(kind)
 }
 
 export function flushPersistedStorage(): Promise<void> {
@@ -736,11 +866,14 @@ export async function replacePersistedKind(
     clearControllerTimers(controller)
     controller.conflict = false
     controller.revision = revision
+    // The file now holds exactly this snapshot; a later identical set is a no-op.
+    controller.lastValue = serialized
     storeRevision(kind, revision)
     setPending(kind, false)
     setDeleted(kind, false)
     await writeCache(controller, serialized)
   }
+  clearUnread(kind)
 }
 
 /**
@@ -752,9 +885,11 @@ export async function discardPersistedKind(kind: Kind): Promise<void> {
     if (controller.kind !== kind) continue
     clearControllerTimers(controller)
     controller.conflict = false
+    controller.lastValue = null
   }
   setPending(kind, false)
   setDeleted(kind, false)
   clearStoredRevision(kind)
   await clearCache(CACHE_KEYS[kind])
+  clearUnread(kind)
 }

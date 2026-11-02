@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import {
   ArrowRight,
   BookOpen,
-  CalendarDays,
   ChevronRight,
   FileText,
   Flame,
@@ -171,14 +170,9 @@ export default function Dashboard() {
         <div>
           <p className="kicker mb-3">{formatLongDate()}</p>
           <h1 className="display text-[2.4rem] leading-[1.05] text-ink sm:text-[3.2rem]">
-            {greeting()}，今天读点什么？
+            {greeting()}，<br className="sm:hidden" />
+            今天读点什么？
           </h1>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted">
-          <CalendarDays size={15} strokeWidth={1.7} />
-          <span>
-            连续 {streak} 天 · 今天已学 {doneToday} 个词
-          </span>
         </div>
       </header>
 

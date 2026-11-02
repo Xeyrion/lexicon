@@ -133,7 +133,7 @@ export function ResetAllDialog({
               清除全部数据？
             </h2>
             <p id="reset-all-description" className="mt-1 text-xs leading-relaxed text-muted">
-              设置、学习进度、个人词库和阅读文章都会删除，且无法撤销。
+              设置、学习进度、个人词库、阅读文章和游戏进度都会删除，且无法撤销。
             </p>
           </div>
         </div>

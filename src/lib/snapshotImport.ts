@@ -2,6 +2,7 @@ import type {
   Book,
   CardRecord,
   DayStat,
+  GameSnapshot,
   PersonalWord,
   ReaderAnchor,
   ReaderArticle,
@@ -15,6 +16,7 @@ import {
   isPlainObject,
   sanitizeBookId,
   sanitizeBooks,
+  sanitizeGameSnapshot,
   sanitizeStories,
   sanitizeDays,
   sanitizePersonalWords,
@@ -46,6 +48,7 @@ export interface ParsedSnapshot {
     saves?: Record<string, StorySave>
     meta?: Record<string, StoryMeta>
   }
+  game?: GameSnapshot
 }
 
 export interface SnapshotDefaults {
@@ -131,7 +134,14 @@ export function parseSnapshot(
     }
   }
 
-  return { ok: true, value: { study, reader, library, stories } }
+  let game: GameSnapshot | undefined
+  if (data.game !== undefined) {
+    const parsedGame = sanitizeGameSnapshot(data.game)
+    if (!parsedGame) return { ok: false, error: '备份中的游戏数据不完整。' }
+    game = parsedGame
+  }
+
+  return { ok: true, value: { study, reader, library, stories, game } }
 }
 
 export function readerProgressItems(
@@ -179,6 +189,16 @@ export function buildStoriesPayload(stories: {
 
 export function buildLibraryPayload(library: { books: Book[] }): unknown {
   return { state: { books: library.books }, version: 1 }
+}
+
+export function buildGamePayload(game: GameSnapshot): unknown {
+  return {
+    state: {
+      profiles: game.profiles,
+      ...(game.settings ? { settings: game.settings } : {}),
+    },
+    version: 1,
+  }
 }
 
 export function buildReaderProgressPayload(reader: ParsedReaderSnapshot): unknown {

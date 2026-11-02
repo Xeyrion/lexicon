@@ -2,6 +2,9 @@
 setlocal
 cd /d "%~dp0"
 
+rem Double-click entry point: builds the app, then serves dist/ with the local
+rem data API. Use `npm run dev` while editing code (hot reload, no build step).
+
 set "NODE_EXE="
 where node >nul 2>nul && set "NODE_EXE=node"
 if not defined NODE_EXE if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "NODE_EXE=%LOCALAPPDATA%\Programs\nodejs\node.exe"
@@ -24,7 +27,7 @@ if errorlevel 1 (
   echo.
   echo [Lexicon] Unsupported Node.js version:
   "%NODE_EXE%" --version
-  echo Vite 8 requires Node.js ^^20.19.0 ^|^| ^>=22.12.0
+  echo Vite 8 requires Node.js ^^20.19.0 ^|^ ^>=22.12.0
   echo Install a supported release from https://nodejs.org/ and run start.cmd again.
   pause
   exit /b 1
@@ -45,11 +48,11 @@ rem Set LEXICON_DATA_DIR to a folder, or create data\.portable for portable mode
 if not defined LEXICON_DATA_DIR if exist "%~dp0data\.portable" set "LEXICON_DATA_DIR=%~dp0data"
 
 rem Keep this URL stable. Browser storage is scoped to scheme + host + port.
-echo Starting Lexicon at http://127.0.0.1:5173 ...
-call npm run dev -- --host 127.0.0.1 --port 5173 --strictPort --open
+echo Building and starting Lexicon at http://127.0.0.1:5173 ...
+call npm start
 if errorlevel 1 (
   echo.
-  echo [Lexicon] The dev server stopped with an error. Check the messages above.
+  echo [Lexicon] Startup failed. Check the messages above, or run npm run build to see the full output.
   pause
   exit /b 1
 )

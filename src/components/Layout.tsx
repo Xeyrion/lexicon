@@ -6,6 +6,7 @@ import {
   BookOpen,
   BookOpenText,
   Flame,
+  Gamepad2,
   Home,
   Library,
   Moon,
@@ -20,9 +21,11 @@ import {
   getFileStorageError,
   getFileStorageStatus,
   getHydrationWriteBlocked,
+  getUnreadLabel,
   subscribeCacheWriteFailed,
   subscribeFileStorageStatus,
   subscribeHydrationWriteBlocked,
+  subscribeUnreadKinds,
 } from '../lib/storage'
 import { useIsDark } from '../lib/useIsDark'
 import { useAppStore } from '../store/appStore'
@@ -42,6 +45,7 @@ const NAV: NavItem[] = [
   { to: '/study', label: '学习', icon: BookOpen },
   { to: '/read', label: '阅读', icon: BookOpenText, also: ['/library', '/stories'] },
   { to: '/books', label: '词书', icon: Library },
+  { to: '/game', label: '游戏', icon: Gamepad2 },
   { to: '/stats', label: '统计', icon: BarChart3 },
   { to: '/settings', label: '设置', icon: Settings },
 ]
@@ -118,6 +122,7 @@ export default function Layout() {
     getCacheWriteFailed,
     () => false,
   )
+  const unread = useSyncExternalStore(subscribeUnreadKinds, getUnreadLabel, () => '')
 
   return (
     <div className="min-h-svh">
@@ -200,6 +205,21 @@ export default function Layout() {
               }
             >
               数据加载超过 2.5 秒，已暂停保存，以免用未加载完的内容覆盖数据文件。这期间的改动不会保存，请重新加载后再继续。
+            </Notice>
+          )}
+          {unread && (
+            <Notice
+              action={
+                <button
+                  type="button"
+                  className="btn btn-secondary whitespace-nowrap"
+                  onClick={() => window.location.reload()}
+                >
+                  重新加载
+                </button>
+              }
+            >
+              {unread}读取超时，本次已暂停保存，以免用空内容覆盖磁盘上的文件。请重新加载页面；如果反复超时，先到设置页导出备份。
             </Notice>
           )}
           {cacheFailed && (

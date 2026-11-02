@@ -1,3 +1,5 @@
+import type { GameSettings, StoredProfile } from './game/model'
+
 export type Accent = 'us' | 'uk'
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type GradeKey = 'again' | 'hard' | 'good' | 'easy'
@@ -189,7 +191,7 @@ export interface StoryMeta {
 
 export interface Snapshot {
   app: 'lexicon'
-  version: 1 | 2 | 3 | 4
+  version: 1 | 2 | 3 | 4 | 5
   exportedAt: string
   settings: Settings
   currentBookId: string
@@ -203,6 +205,14 @@ export interface Snapshot {
     saves?: Record<string, StorySave>
     meta?: Record<string, StoryMeta>
   }
+  /** Game profiles and shell settings; added in version 5. */
+  game?: GameSnapshot
+}
+
+/** What one game keeps between runs, plus the shell settings around it. */
+export interface GameSnapshot {
+  profiles: Record<string, StoredProfile>
+  settings?: GameSettings
 }
 
 export type SessionStage = 'new' | 'review' | 'learning' | 'relearning'

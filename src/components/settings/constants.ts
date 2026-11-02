@@ -6,4 +6,5 @@ export const STORAGE_FILES: { kind: StorageKind; label: string }[] = [
   { kind: 'reader-progress', label: '阅读进度' },
   { kind: 'library', label: '书架' },
   { kind: 'stories', label: '故事' },
+  { kind: 'game', label: '游戏' },
 ]

@@ -18,6 +18,10 @@ const Reader = lazy(() => import('./pages/Reader'))
 const Books = lazy(() => import('./pages/Books'))
 const Stats = lazy(() => import('./pages/Stats'))
 const Settings = lazy(() => import('./pages/Settings'))
+const Game = lazy(() => import('./pages/Game'))
+const Remake = lazy(() => import('./game/pages/Remake'))
+const Achievements = lazy(() => import('./game/pages/Achievements'))
+const GameSettings = lazy(() => import('./game/pages/GameSettings'))
 
 function ThemeSync() {
   const theme = useAppStore((state) => state.settings.theme)
@@ -91,6 +95,10 @@ export default function App() {
               <Route path="read/:articleId/edit" element={<EditArticle />} />
               <Route path="read/:articleId" element={<Reader />} />
               <Route path="books" element={<Books />} />
+              <Route path="game" element={<Game />} />
+              <Route path="game/remake" element={<Remake />} />
+              <Route path="game/:gameId/achievements" element={<Achievements />} />
+              <Route path="game/:gameId/settings" element={<GameSettings />} />
               <Route path="stories" element={<Stories />} />
               <Route path="stories/:storyId" element={<StoryReader />} />
               <Route path="stats" element={<Stats />} />

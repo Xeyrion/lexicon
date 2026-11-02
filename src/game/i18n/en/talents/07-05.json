@@ -1,0 +1,28 @@
+{
+  "items": {
+    "2013": { "name": "White Wheel", "description": "Turns into a random white talent." },
+    "2014": { "name": "Continuously Differentiable", "description": "You have no other personalities." },
+    "2015": { "name": "Brilliant Talent", "description": "Sadly, there is no room to write it here." },
+    "2016": { "name": "Superposition", "description": "Become an orange talent or die." },
+    "2017": { "name": "Muda", "description": "Your last words are famous." },
+    "2018": { "name": "Prolific", "description": "Constitution -2 at age 60." },
+    "2019": { "name": "Leverage", "description": "You have a talent for finance." },
+    "2020": { "name": "Physics", "description": "Looks -2 at age 30." },
+    "2021": { "name": "Living World Lucky Bag", "description": "More likely to contain a good talent." },
+    "2022": { "name": "Allegory of the Cave", "description": "You may discover the truth of the world." },
+    "2023": { "name": "Talent Assessment", "description": "You cannot have more than 5 talents." },
+    "2024": { "name": "Nobel Prize", "description": "Winning one lets you revive once." },
+    "2025": { "name": "Orange Wheel No. 2", "description": "Turns into a random orange talent." },
+    "2026": { "name": "Lasting Fame", "description": "When tragedy strikes, all attributes +1." },
+    "2027": { "name": "Hundred Generations", "description": "Randomly draws a play." },
+    "2028": { "name": "Hamlet", "description": "Happiness -2." },
+    "2029": { "name": "King Lear", "description": "Happiness -2." },
+    "2030": { "name": "Macbeth", "description": "Happiness -2." },
+    "2031": { "name": "Othello", "description": "Happiness -2." },
+    "2032": { "name": "A Midsummer Night's Dream", "description": "Happiness +114509." },
+    "2033": { "name": "The Merchant of Venice", "description": "Happiness +2." },
+    "2034": { "name": "Twelfth Night", "description": "Happiness +2." },
+    "2035": { "name": "As You Like It", "description": "Happiness +2." },
+    "2036": { "name": "Never Give Up", "description": "You will never give up." }
+  }
+}

@@ -6,13 +6,12 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type RefObject,
 } from 'react'
-import { ArrowLeft, ArrowRight, BookOpenText, Languages, Minus, MousePointer2, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpenText, Minus, Pencil, Plus } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { HoverPreview } from '../components/reader/HoverPreview'
-import { ReaderProgress, type ReaderProgressStore } from '../components/reader/ReaderProgress'
+import { ReaderProgress } from '../components/reader/ReaderProgress'
 import { ReaderText, ReaderTitle } from '../components/reader/ReaderText'
 import { SelectionAction } from '../components/reader/SelectionAction'
 import { WordPanel } from '../components/reader/WordPanel'
@@ -26,6 +25,11 @@ import { useAppStore } from '../store/appStore'
 import { useReaderStore } from '../store/readerStore'
 import { useReaderProgressStore } from '../store/readerProgressStore'
 import type { ReaderAnchor, ReaderArticle, WordEntry } from '../types'
+import { ANCHOR_OFFSET, readAnchor } from './reader/anchor'
+import { ReaderHint } from './reader/ReaderHint'
+import { ReaderSkeleton } from './reader/ReaderSkeleton'
+import { createReaderProgressStore } from './reader/progressStore'
+import { useReaderProgressTracker } from './reader/useReaderProgressTracker'
 
 interface HoverState {
   word: string
@@ -43,97 +47,6 @@ interface ReaderPanelQuery {
   query: string
 }
 
-function createReaderProgressStore(initialProgress: number): ReaderProgressStore {
-  let percent = Math.round(Math.min(1, Math.max(0, initialProgress)) * 100)
-  const listeners = new Set<() => void>()
-
-  return {
-    getPercent: () => percent,
-    setPercent: (next) => {
-      const clamped = Math.min(100, Math.max(0, next))
-      if (clamped === percent) return
-      percent = clamped
-      listeners.forEach((listener) => listener())
-    },
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => {
-        listeners.delete(listener)
-      }
-    },
-  }
-}
-
-/** Restoring puts the anchor token this far below the viewport top. */
-const ANCHOR_OFFSET = 96
-
-/**
- * Finds the first word the reader can actually see. Probing by point beats
- * walking every token: one layout read per frame instead of hundreds.
- */
-function readAnchor(container: HTMLElement): ReaderAnchor | null {
-  const rect = container.getBoundingClientRect()
-  const x = rect.left + rect.width / 2
-  if (x < 0 || x > window.innerWidth) return null
-  const start = Math.max(rect.top, ANCHOR_OFFSET)
-  for (let y = start + 12; y < start + 160; y += 24) {
-    if (y > window.innerHeight) break
-    const element = document.elementFromPoint(x, y)
-    const word = element?.closest<HTMLElement>('[data-word]')
-    if (!word) continue
-    const paragraph = Number(word.dataset.paragraph)
-    const token = Number(word.dataset.token)
-    if (Number.isInteger(paragraph) && Number.isInteger(token) && token >= 0) {
-      return { paragraph, token }
-    }
-  }
-  return null
-}
-
-/**
- * 在 rAF 中测量文章滚动进度，只写入独立 store（百分比变化时才通知进度条），
- * 避免每帧重渲染整个阅读页。
- */
-function useReaderProgressTracker(
-  store: ReaderProgressStore,
-  articleRef: RefObject<HTMLElement | null>,
-  initialProgress: number,
-  onProgress: (progress: number, anchor: ReaderAnchor | null) => void,
-) {
-  useEffect(() => {
-    let frame = 0
-
-    const measure = () => {
-      const element = articleRef.current
-      if (!element) return
-      const rect = element.getBoundingClientRect()
-      const total = rect.height - window.innerHeight
-      // 不足一屏的短文直接视为读完，避免永远停在 0%。
-      const progress = total <= 0 ? 1 : Math.min(1, Math.max(0, -rect.top / total))
-      onProgress(progress, readAnchor(element))
-      store.setPercent(Math.round(progress * 100))
-    }
-
-    const onScroll = () => {
-      if (frame) return
-      frame = window.requestAnimationFrame(() => {
-        frame = 0
-        measure()
-      })
-    }
-
-    // 有保存进度时先让恢复滚动触发测量，避免挂载瞬间把进度闪成 0%。
-    if (initialProgress <= 0) measure()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll)
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onScroll)
-      if (frame) window.cancelAnimationFrame(frame)
-    }
-  }, [articleRef, initialProgress, onProgress, store])
-}
-
 function toRect(rect: DOMRect): ReaderRect {
   return {
     top: rect.top,
@@ -143,87 +56,6 @@ function toRect(rect: DOMRect): ReaderRect {
     width: rect.width,
     height: rect.height,
   }
-}
-
-function ReaderSkeleton() {
-  return (
-    <div className="animate-pulse space-y-6">
-      <div className="h-12 rounded-2xl bg-sunken/70" />
-      <div className="surface-card h-[34rem] p-8">
-        <div className="mx-auto h-full max-w-2xl space-y-4">
-          <div className="h-8 w-2/3 rounded-full bg-sunken" />
-          <div className="h-4 w-1/3 rounded-full bg-sunken/70" />
-          <div className="mt-10 space-y-3">
-            {Array.from({ length: 8 }).map((_, index) => (
-              <div key={index} className="h-3 rounded-full bg-sunken/60" />
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ReaderHint({
-  loading,
-  error,
-  wordCount,
-  phraseCount,
-  onRetry,
-}: {
-  loading: boolean
-  error: string | null
-  wordCount: number
-  phraseCount: number
-  onRetry: () => void
-}) {
-  if (loading && !error) {
-    return (
-      <div className="surface-flat animate-pulse p-5">
-        <div className="h-3 w-20 rounded-full bg-sunken" />
-        <div className="mt-4 h-5 w-36 rounded-full bg-sunken" />
-        <div className="mt-4 space-y-2">
-          <div className="h-3 rounded-full bg-sunken/70" />
-          <div className="h-3 w-4/5 rounded-full bg-sunken/70" />
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="surface-flat p-5">
-      <p className="kicker">Dictionary</p>
-      <p className="display mt-3 text-xl text-ink">读的时候，随手查</p>
-      {error ? (
-        <div className="mt-3">
-          <p className="text-xs leading-relaxed text-accent">{error}</p>
-          <button type="button" className="btn btn-secondary mt-3 w-full" onClick={onRetry}>
-            重试加载
-          </button>
-        </div>
-      ) : (
-        <>
-          <ul className="mt-4 space-y-2.5 text-[11px] leading-relaxed text-muted">
-            <li className="flex items-start gap-2">
-              <MousePointer2 size={13} className="mt-0.5 shrink-0 text-accent" strokeWidth={1.8} />
-              悬停单词，看简要释义
-            </li>
-            <li className="flex items-start gap-2">
-              <BookOpenText size={13} className="mt-0.5 shrink-0 text-accent" strokeWidth={1.8} />
-              点击单词，固定完整词条
-            </li>
-            <li className="flex items-start gap-2">
-              <Languages size={13} className="mt-0.5 shrink-0 text-accent" strokeWidth={1.8} />
-              选中多个词，查短语
-            </li>
-          </ul>
-          <p className="mt-4 border-t border-line pt-3 text-[10px] text-faint">
-            {wordCount.toLocaleString('zh-CN')} 个词条 · {phraseCount.toLocaleString('zh-CN')} 个短语
-          </p>
-        </>
-      )}
-    </div>
-  )
 }
 
 interface ChapterNav {

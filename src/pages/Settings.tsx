@@ -30,6 +30,7 @@ import { useStorageData } from '../hooks/useStorageData'
 import { inspectStudyData } from '../lib/health'
 import { speakWord } from '../lib/speech'
 import { useAppStore } from '../store/appStore'
+import { useGameStore } from '../store/gameStore'
 import type { Accent, ThemeMode } from '../types'
 
 const THEME_OPTIONS: { value: ThemeMode; label: string; icon: LucideIcon }[] = [
@@ -91,6 +92,9 @@ export default function Settings() {
 
   const handleResetAll = async () => {
     setResetAllOpen(false)
+    // Drop the in-memory game profile first: it arms a debounced write that
+    // resetAll() then cancels along with the file itself.
+    useGameStore.getState().resetAllGames()
     await resetAll()
     window.location.reload()
   }
@@ -331,7 +335,7 @@ export default function Settings() {
               <div>
                 <p className="text-sm text-ink">清除全部数据</p>
                 <p className="mt-0.5 text-[11px] text-faint">
-                  设置、进度、个人词库和阅读文章都会删除，备份目录会保留。
+                  设置、进度、个人词库、阅读文章和游戏进度都会删除，备份目录会保留。
                 </p>
               </div>
               <button
