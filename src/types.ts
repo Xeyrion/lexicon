@@ -1,4 +1,4 @@
-import type { GameSettings, StoredProfile } from './game/model'
+import type { GameSettings, SavedRun, StoredProfile } from './game/model'
 
 export type Accent = 'us' | 'uk'
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -213,6 +213,12 @@ export interface Snapshot {
 export interface GameSnapshot {
   profiles: Record<string, StoredProfile>
   settings?: GameSettings
+  /**
+   * The run in flight. Without it a backup taken mid-run restores to a home
+   * screen with no "继续这一局", which is exactly when someone is most likely
+   * to be moving their data to another device.
+   */
+  runs?: Record<string, SavedRun>
 }
 
 export type SessionStage = 'new' | 'review' | 'learning' | 'relearning'

@@ -194,6 +194,9 @@ export function useStorageData() {
       game: {
         profiles: gameState.profiles,
         settings: gameState.settings,
+        // Without the run in flight, a backup taken mid-life restores to an
+        // empty home screen — the one moment people most want it.
+        runs: gameState.runs,
       },
     }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -385,6 +388,9 @@ export function useStorageData() {
         useGameStore.setState({
           profiles: snapshot.game.profiles,
           ...(snapshot.game.settings ? { settings: snapshot.game.settings } : {}),
+          // A restore replaces the run in flight rather than merging: the
+          // snapshot is meant to reproduce the other device exactly.
+          runs: snapshot.game.runs ?? {},
         })
         await replacePersistedKind('game', data.game, result.revisions.game ?? 1)
       }

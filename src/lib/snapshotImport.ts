@@ -196,6 +196,7 @@ export function buildGamePayload(game: GameSnapshot): unknown {
     state: {
       profiles: game.profiles,
       ...(game.settings ? { settings: game.settings } : {}),
+      ...(game.runs ? { runs: game.runs } : {}),
     },
     version: 1,
   }

@@ -163,3 +163,25 @@ describe('shownAge', () => {
     expect(shownAge(27)).toBe(27)
   })
 })
+
+describe('game snapshot with a run in flight', () => {
+  it('keeps a valid run and drops a broken one', () => {
+    const snapshot = sanitizeGameSnapshot({
+      profiles: { remake: { times: 3, talents: [], events: [], achievements: [] } },
+      runs: {
+        remake: { step: 'play', game: serializeGame(gameState), seed: 7, rngState: 11 },
+        broken: { step: 'play' },
+      },
+    })
+
+    expect(Object.keys(snapshot?.runs ?? {})).toEqual(['remake'])
+    expect(snapshot?.runs?.remake.seed).toBe(7)
+    expect(snapshot?.runs?.remake.game?.props.current.age).toBe(30)
+  })
+
+  it('omits the field entirely when there is no run to carry', () => {
+    const snapshot = sanitizeGameSnapshot({ profiles: {} })
+    expect(snapshot).not.toBeNull()
+    expect(snapshot && 'runs' in snapshot).toBe(false)
+  })
+})

@@ -1,5 +1,5 @@
 import type { GameSnapshot } from '../../types'
-import { sanitizeProfile, sanitizeSettings } from '../../game/model'
+import { sanitizeProfile, sanitizeRun, sanitizeSettings } from '../../game/model'
 import { isPlainObject } from './primitives'
 
 /**
@@ -18,8 +18,20 @@ export function sanitizeGameSnapshot(value: unknown): GameSnapshot | null {
     }
   }
 
+  // A run that fails to parse is dropped rather than failing the whole backup:
+  // losing one in-flight life is much better than refusing the import.
+  const runs: NonNullable<GameSnapshot['runs']> = {}
+  if (isPlainObject(value.runs)) {
+    for (const [gameId, raw] of Object.entries(value.runs)) {
+      if (!gameId) continue
+      const run = sanitizeRun(raw)
+      if (run) runs[gameId] = run
+    }
+  }
+
   return {
     profiles,
     ...(value.settings === undefined ? {} : { settings: sanitizeSettings(value.settings) }),
+    ...(Object.keys(runs).length > 0 ? { runs } : {}),
   }
 }
