@@ -102,6 +102,17 @@ npm start
 - 优先级：`LEXICON_DATA_DIR` > `data\.portable` > 平台默认目录。
 - 启动时终端会打印实际使用的数据目录（`Lexicon data: ...`）。
 
+### 内置服务器（`npm run serve`）
+
+`npm run serve` 会用 `server/standalone.ts` 起一个普通 Node HTTP 服务：静态文件来自 `dist/`，`/api/storage` 走同一套本地数据接口。打包出来的桌面版跑的就是这个入口。
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `LEXICON_HOST` | `127.0.0.1` | 监听地址；只在需要局域网访问时才改 |
+| `LEXICON_PORT` | `5173` | 端口；被占用时会尝试打开已运行的那一份 |
+| `LEXICON_WEB_ROOT` | 自动查找 `dist/` | 静态文件目录，打包版把 `dist/` 放在可执行文件旁边即可 |
+| `LEXICON_OPEN` | 开 | 启动后是否自动打开浏览器；设成 `0` 关闭 |
+
 ### 导入大小上限
 
 单次导入的请求体上限默认是 **64 MB**，由本地服务校验，客户端会先拿这个值比较所选文件的体积，超限直接提示而不是先把文件读进内存。
@@ -159,6 +170,8 @@ npm start
 npm start            # 构建后启动（日常使用，跑 dist/）
 npm run dev          # 启动开发服务器（同时提供本地数据接口）
 npm run build        # 类型检查并构建到 dist/
+npm run build:server # 只把 server/ 编译成 dist-server/（打包用）
+npm run serve        # 构建后用内置服务器跑 dist/，不经过 vite preview
 npm run preview      # 预览已构建的版本
 npm run lint         # oxlint
 npm test             # Vitest：校验器、备份解析，以及本地数据接口的集成测试
