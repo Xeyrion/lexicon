@@ -18,18 +18,23 @@ const SAMPLE = 'The rain had been falling since noon.'
  * visible and lets the user pick among the voices that do exist.
  */
 export function VoicePanel({ accent, rate }: { accent: Accent; rate: number }) {
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[] | null>(null)
+  const [all, setAll] = useState<SpeechSynthesisVoice[] | null>(null)
+  const [nonce, setNonce] = useState(0)
   const [selected, setSelected] = useState(() => getPreferredVoiceURI() ?? '')
 
   useEffect(() => {
     let cancelled = false
-    void listVoices().then((all) => {
-      if (!cancelled) setVoices(englishVoices(all))
+    void listVoices().then((voices) => {
+      if (!cancelled) setAll(voices)
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [nonce])
+
+  // The raw list matters: "0 voices" and "6 voices, none English" are different
+  // problems, and on a phone this panel is the only way to tell them apart.
+  const voices = all === null ? null : englishVoices(all)
 
   const choose = (uri: string) => {
     setSelected(uri)
@@ -65,18 +70,34 @@ export function VoicePanel({ accent, rate }: { accent: Accent; rate: number }) {
         <p className="mt-3 text-[10px] text-faint">正在读取系统语音…</p>
       )}
 
-      {voices !== null && voices.length === 0 && (
+      {all !== null && voices !== null && voices.length === 0 && (
         <div className="mt-3 rounded-xl border border-accent/25 bg-accent-wash px-3 py-2.5 text-[10px] leading-relaxed text-accent">
-          <p className="font-medium">没有找到英文语音，发音和朗读都用不了。</p>
-          <p className="mt-1">
-            Windows：设置 → 时间和语言 → 语音 → 添加语音 → English (United States)。
+          <p className="font-medium">
+            浏览器报告了 {all.length} 个语音，其中英文 0 个。
           </p>
-          <p className="mt-0.5">
-            macOS：系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音。
+          {all.length > 0 && (
+            <p className="mt-1 opacity-80">
+              看到的是：{all.slice(0, 6).map((voice) => `${voice.name} (${voice.lang})`).join('、')}
+            </p>
+          )}
+          <p className="mt-1">
+            {all.length === 0
+              ? '一个都没看到，说明浏览器没接上系统的语音引擎。安卓请到「文字转语音输出」确认引擎已安装英文语音包，然后完全关掉浏览器再打开。'
+              : '引擎在，但缺英文包。安卓：设置 → 辅助功能 → 文字转语音输出 → 引擎设置 → 安装语音数据 → English。'}
           </p>
           <p className="mt-1 opacity-80">
-            装完重启浏览器即可，不用重装本应用。没装英文语音时不会用中文语音去念英文。
+            iPhone：设置 → 辅助功能 → 朗读内容 → 声音 → 英语。Windows / macOS 的路径见 README。
           </p>
+          <button
+            type="button"
+            className="btn btn-ghost mt-2 text-[11px]"
+            onClick={() => {
+              setAll(null)
+              setNonce((value) => value + 1)
+            }}
+          >
+            重新检测
+          </button>
         </div>
       )}
 
