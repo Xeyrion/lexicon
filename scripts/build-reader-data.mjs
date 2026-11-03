@@ -436,17 +436,52 @@ function cleanPhonetic(raw) {
   return `/${first.replace(PHONETIC_FIRST, '')}/`
 }
 
-function cleanTranslation(raw) {
+/**
+ * ECDICT prefixes a sense with its domain: `[计] 联机`, `[化] 鸟苷二磷酸`.
+ * Dropping those lines is right when a word also has a plain sense, but for a
+ * whole class of words the tagged line is the *only* one, and dropping it
+ * erased the entry outright — `internet`, `online`, `download`, `laptop` and
+ * `app` were all missing for exactly this reason.
+ *
+ * `taggedFallback` enables the rescue, and only single words pass it. For a
+ * headword a domain sense is often the only sense and still the right answer
+ * ("internet" is `[计] 因特网`); for a *phrase* it is almost always a technical
+ * collocation that a reader does not want — letting those through added
+ * "not go = 不通过" and pushed out "job interview".
+ */
+function cleanTranslation(raw, { taggedFallback = false } = {}) {
   if (!raw) return []
-  return raw
+  const lines = raw
     .replace(/\r/g, '')
     .split(/\n|\\n/)
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
     .filter((line) => /[\u4e00-\u9fff]/.test(line))
-    .filter((line) => !/^\[[^\]]+\]/.test(line))
-    .filter((line, index, arr) => arr.indexOf(line) === index)
-    .slice(0, 4)
+
+  const plain = lines.filter((line) => !/^\[[^\]]+\]/.test(line))
+  const chosen =
+    plain.length > 0 || !taggedFallback
+      ? plain
+      : lines.map((line) => line.replace(/^\[[^\]]+\]\s*/, '').trim()).filter(Boolean)
+
+  return chosen.filter((line, index, arr) => arr.indexOf(line) === index).slice(0, 4)
+}
+
+/**
+ * A bare inflected form carries a one-line translation such as "be的过去式".
+ * Most of these rows also have a usable `exchange` field, but some are
+ * malformed (`were` is `1:p/0:be`, with the codes reversed), and since they
+ * have no frequency data the threshold in collectWords drops them — which is
+ * how "were", one of the most common words in English, ended up missing.
+ * Reading the lemma back out of the translation recovers those rows.
+ */
+const INFLECTION_TRANSLATION =
+  /^([A-Za-z][A-Za-z'’-]*)的(?:过去式|过去分词|现在分词|第三人称单数|复数|比较级|最高级|动名词|ing形式)$/
+
+function inflectionLemma(trans) {
+  if (trans.length !== 1) return null
+  const match = INFLECTION_TRANSLATION.exec(trans[0])
+  return match ? normalizeWord(match[1]) : null
 }
 
 function normalizeWord(raw) {
@@ -549,19 +584,30 @@ async function streamRows(onRow) {
   }
 }
 
+/**
+ * Inflected forms that only exist as a "X的过去式"-style row. They are not
+ * worth a dictionary entry of their own, but they are worth an alias to the
+ * lemma. Filled while streaming, filtered against the final word list later.
+ */
+const inflectionAliases = new Map()
+
 async function collectWords() {
   const rows = []
   await streamRows((row) => {
     const word = (row.word ?? '').trim()
     if (!word || !SINGLE_WORD.test(word) || word.length > 40) return
-    const trans = cleanTranslation(row.translation)
+    const trans = cleanTranslation(row.translation, { taggedFallback: true })
     if (trans.length === 0) return
     const tags = (row.tag ?? '').split(/\s+/).filter(Boolean)
     const collins = Number(row.collins) || 0
     const oxford = (row.oxford ?? '').trim() === '1'
     const bnc = Number(row.bnc) || 0
     const frq = Number(row.frq) || 0
-    if (!frq && !bnc && tags.length === 0 && !oxford && !collins) return
+    if (!frq && !bnc && tags.length === 0 && !oxford && !collins) {
+      const lemma = inflectionLemma(trans)
+      if (lemma) inflectionAliases.set(normalizeWord(word), lemma)
+      return
+    }
     rows.push({
       word,
       key: normalizeWord(word),
@@ -675,6 +721,17 @@ async function main() {
       if (word.rank < currentRank) aliases[key] = word.key
     }
   }
+
+  // Inflected forms recovered from their translation. Keep only those whose
+  // lemma actually made the cut, and never shadow an exchange-derived alias.
+  let recovered = 0
+  for (const [form, lemma] of inflectionAliases) {
+    if (form === lemma || aliases[form] || commonWords.has(form)) continue
+    if (!commonWords.has(lemma)) continue
+    aliases[form] = lemma
+    recovered += 1
+  }
+  console.log(`Inflection aliases recovered from translations: ${recovered}`)
 
   await mkdir(OUT_DIR, { recursive: true })
   const meta = buildMeta()
