@@ -64,10 +64,15 @@ export default defineConfig(({ mode }) => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,woff2,svg,png}'],
           navigateFallback: 'index.html',
+          // Dictionaries are rebuilt occasionally (`npm run dicts` /
+          // `reader-data`). With CacheFirst an installed copy would keep serving
+          // the old file for up to a year, so the rebuild would look like it did
+          // nothing. StaleWhileRevalidate still answers from cache offline but
+          // refreshes in the background, so the next visit gets the new file.
           runtimeCaching: [
             {
               urlPattern: /\/data\/books\/.*\.json$/,
-              handler: 'CacheFirst',
+              handler: 'StaleWhileRevalidate',
               options: {
                 cacheName: 'word-books',
                 expiration: {
@@ -78,7 +83,7 @@ export default defineConfig(({ mode }) => {
             },
             {
               urlPattern: /\/data\/reader\/.*\.json$/,
-              handler: 'CacheFirst',
+              handler: 'StaleWhileRevalidate',
               options: {
                 cacheName: 'reader-data',
                 expiration: {
