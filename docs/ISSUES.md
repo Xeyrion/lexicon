@@ -17,7 +17,7 @@
 - **#11 的自动修复**：只做「检测到异常并提示」，不改写 `due` / `days`。
 - **#42 安全边界**：`/api/storage` 无鉴权（仅本机 Origin 校验）、无 CSP。
 - **M1/M5 存储架构**：整文件 JSON + 全量重写；`library.json` 超过约 10MB 后，1.2 秒的读取预算和 3 秒的写入预算会变紧。
-- **CI 与页面级 E2E**：`npm test` 覆盖纯函数和本地接口，页面回归仍靠 `scripts/smoke-*.mjs` 手跑。
+- **页面级 E2E**：lint、构建与 `npm test` 已由 `.github/workflows/ci.yml` 自动跑；页面回归仍靠 `scripts/smoke-*.mjs` 手跑，因为它们依赖本机 Chrome，没进 CI。
 - **游戏 · 译文没有母语审校**：2,069 条（1,720 事件 + 184 天赋 + 165 成就）已全部翻完，
   `translate:check` 只校验 id、占位符、残留中文和长度比例，语感没人逐条读过。
 - **游戏 · 内容分级**：含死亡、疾病、暴力等情节，目前只在游戏首页写了一行提示；公开仓库前若要更严，需要黑名单或版本分级（当前决定：不做黑名单）。
@@ -50,13 +50,13 @@
 | --- | --- | --- | --- |
 | M1 | 把 `study.json` / `reader.json` 从“整文件覆盖”改为分片或 SQLite/LevelDB | 改变数据文件结构和备份方式，属于存储架构升级 | 暂缓；#21 已先做服务端紧凑 JSON |
 | M2 | `start.cmd` 从 `vite dev` 改为 `build + preview` | 改变日常启动方式，影响开发调试和 PWA | 已采纳：`start.cmd` 现在构建 + preview，改代码用 `npm run dev`；不再维护第二个启动脚本 |
-| M3 | PWA 数据缓存从 `CacheFirst` 一年改为 `NetworkFirst`/版本化 URL | 改变离线行为和词典更新语义 | 若保留 PWA，建议做版本化 |
+| M3 | PWA 数据缓存从 `CacheFirst` 一年改为 `NetworkFirst`/版本化 URL | 改变离线行为和词典更新语义 | 已做：两个词典缓存改成 `StaleWhileRevalidate`——离线仍从缓存应答，下次访问在后台刷新，重建词典不会再被旧缓存挡住 |
 | M4 | “清除全部数据”是否连 `backups/` 一起删除 | 涉及隐私与可恢复性的取舍 | 已决定保留备份；清空弹窗告知，设置页展示备份路径/数量/大小 |
 | M5 | 词典/词书改为按需分片加载或新数据格式 | 需要改构建脚本与前端加载器 | 暂缓；先测量，再决定是否值得 |
 | M6 | 跨浏览器/多进程写入：改为只读 follower、文件锁或单实例检测 | 改变多开行为 | 建议先停止 409 自动覆盖，是否做锁另行确认 |
 | M7 | 增加服务端备份浏览/恢复 API 与 UI | 新增数据恢复入口和接口 | 已做（设置页自动备份列表与恢复，恢复前安全备份；暂不提供删除 UI） |
 | M8 | 项目 LICENSE 选择 | 法律选择，不能替用户决定 | 已采用 MIT（见 LICENSE、package.json、README） |
-| M9 | 引入 Vitest/Playwright 与 CI | 新增开发依赖和脚本 | 建议先加 Vitest，CI 可后置 |
+| M9 | 引入 Vitest/Playwright 与 CI | 新增开发依赖和脚本 | 已做：Vitest + `ci.yml`（lint/构建/测试）；Playwright 未引入，页面回归仍靠 smoke 脚本 |
 
 ## 一、数据安全（最高优先）
 
@@ -183,7 +183,7 @@
 ### 19. 7MB 词典首次加载成本高
 - 状态：`暂缓`（M5，暂不推进）
 - 位置：`useReaderDictionary`、`readerData.ts`
-- 现象：7.27MB / 54,794 词条 + 0.82MB 短语，主线程 parse + 构建 Map。
+- 现象：7.61MB / 58,194 词条 + 0.77MB 短语，主线程 parse + 构建 Map。
 - 建议：分片/Worker/IndexedDB 缓存。
 
 ### 20. 主包过大，没有路由级拆包
@@ -288,10 +288,10 @@
 - 处理：已开启 `"strict": true`，`npm run build` 通过；未额外开启 `noUncheckedIndexedAccess` 等更严格选项。
 
 ### 36. 无测试、无 CI、无 test 脚本
-- 状态：`部分修复`（已有 Vitest：纯函数测试 + 本地接口集成测试；仍无 CI 与浏览器 E2E 流水线）
-- 位置：`vitest.config.ts`、`src/lib/__tests__/`
-- 处理：`npm test` / `npm run test:watch` 已可用，覆盖校验器（坏数据怎么被丢弃/拒绝）、备份解析，以及 `server/dataStorage.test.ts` 里本地接口的集成测试（临时数据目录 + 真实 http server）。条数以命令输出为准。
-- 建议：加 CI，把 `scripts/smoke-*.mjs` 纳入流水线。
+- 状态：`部分修复`（已有 Vitest 与 CI；浏览器 E2E 仍未进流水线）
+- 位置：`vitest.config.ts`、`src/lib/__tests__/`、`.github/workflows/ci.yml`
+- 处理：`npm test` / `npm run test:watch` 已可用，覆盖校验器（坏数据怎么被丢弃/拒绝）、备份解析，以及 `server/dataStorage.test.ts` 里本地接口的集成测试（临时数据目录 + 真实 http server）。条数以命令输出为准。`ci.yml` 在 push 与 PR 时跑 lint、构建与 `npm test`。
+- 建议：把 `scripts/smoke-*.mjs` 纳入流水线（需要先解决 CI 里 Chrome 的安装与数据目录隔离）。
 
 ### 37. 文档缺失
 - 状态：`已修`
@@ -320,7 +320,7 @@
 
 ### 41. 仓库卫生与版本控制
 - 状态：`已修`（已初始化 Git，已纳入 `public/data`，已添加 MIT LICENSE）
-- 剩余：大文件策略、CI。
+- 剩余：大文件策略。
 
 ### 42. 安全边界（低）
 - 状态：`部分修复`（导入大小已限制；鉴权与 CSP 仍是已知边界）

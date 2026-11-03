@@ -270,6 +270,17 @@ npm -v
 
 确认 `public/data/books/`、`public/data/reader/` 存在。如果缺失，运行 `npm run dicts`、`npm run reader-data` 重新生成。
 
+### 查不到某个单词
+
+阅读词典来自 [ECDICT](https://github.com/skywind3000/ECDICT)（英汉，MIT）与 [ipa-dict](https://github.com/open-dict-data/ipa-dict)（音标，MIT）。构建时只保留**带词频、考试大纲标签或柯林斯/牛津标记**的词条，再按频次取前 6 万条，所以下面几类会显示「词典暂未收录这个词」——这是覆盖范围的边界，不是加载失败：
+
+- **很新的词**：`selfie`、`emoji`、`blockchain`、`chatbot`、`microplastic`——ECDICT 的词频语料早于这些词
+- **部分缩写与专名**：`COVID`、`e.g.`、`U.S.`——词条正则不收点号，且多数缩写没有词频
+- **汉语拼音/罗马化专名**：`gaokao`、`dao`、`mbti`
+- **生僻词**：`petrichor`、`defenestrate`
+
+屈折变化（`were`、`studies`、`bigger`）走别名表和查词时的词干回退，不占词条名额。要扩大覆盖，改 `scripts/build-reader-data.mjs` 里的 `WORD_LIMIT` 再跑 `npm run reader-data`；文件体积和主线程解析时间会一起涨。
+
 ### 启动后数据像是空的
 
 可能是磁盘或浏览器存储较慢，应用在等待 2.5 秒后先以当前内容继续。先刷新页面确认；如果仍然为空，关闭应用并检查数据目录中的 JSON 文件是否完整，或从 `backups/` 恢复。
@@ -282,7 +293,7 @@ npm -v
 - 数据以整份 JSON 文件读写；阅读文章很多或很长时，启动和保存会变慢。
 - 导入备份已有基本回滚保护，但仍不是严格意义上的跨多文件原子事务，导入后建议刷新页面确认结果。
 - 备份删除需手动到备份目录操作（暂未提供 UI 删除）。
-- 有单元测试、本地接口集成测试和 4 个无头浏览器冒烟脚本，但**没有 CI**，需要手动跑（`npm test` 会顺带检查文档是否过期）。
+- 有单元测试、本地接口集成测试和 4 个无头浏览器冒烟脚本。前两者由 `.github/workflows/ci.yml` 在 push 与 PR 时自动跑（lint、构建、`npm test`；`npm test` 会顺带检查文档是否过期）。4 个冒烟脚本**不在 CI 里**，需要手动跑，因为它们依赖本机 Chrome。
 - 修改后立刻刷新页面，有极小概率丢掉最后一次写入（页面卸载时的落盘可能被导航打断）。
 - 发音和朗读用的是**系统语音**（Web Speech API），不是应用自带的。没装英文语音时功能会明确提示并引导安装，不会拿中文语音去念英文。
 
