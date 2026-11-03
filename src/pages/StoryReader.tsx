@@ -15,8 +15,6 @@ import { LIGHTHOUSE_STORY } from '../data/lighthouse'
 import { useReaderDictionary } from '../hooks/useReaderDictionary'
 import { findNode, isChoiceAvailable, resolveNodeText } from '../lib/story'
 import {
-  englishVoices,
-  listVoices,
   speakPassage,
   splitSentences,
   type PassageController,
@@ -95,11 +93,9 @@ export default function StoryReader() {
   }, [node?.id])
 
   const startSpeaking = async () => {
-    const voices = await listVoices()
-    if (englishVoices(voices).length === 0) {
-      setVoiceMissing(true)
-      return
-    }
+    // No pre-flight voice check: Android reports an empty list but still speaks
+    // through the system engine. speakPassage reports back via onUnavailable
+    // only when voices exist and none of them are English.
     setVoiceMissing(false)
     setPaused(false)
     playerRef.current = speakPassage(nodeText, {

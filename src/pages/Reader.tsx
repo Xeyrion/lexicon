@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import { ArrowLeft, ArrowRight, BookOpenText, Minus, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpenText, Minus, Pause, Pencil, Play, Plus, Square } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { HoverPreview } from '../components/reader/HoverPreview'
@@ -20,6 +20,7 @@ import { useReaderDictionary } from '../hooks/useReaderDictionary'
 import { findChapter, useLibraryStore } from '../store/libraryStore'
 import { formatShortDate } from '../lib/date'
 import { isPhraseSelection, readingMinutes } from '../lib/reader'
+import { speakPassage, splitSentences, type PassageController } from '../lib/speech'
 import { useReaderHydrated } from '../lib/useReaderHydrated'
 import { useAppStore } from '../store/appStore'
 import { useReaderStore } from '../store/readerStore'
@@ -128,6 +129,67 @@ function ReaderView({
   const [hover, setHover] = useState<HoverState | null>(null)
   const [selectionAction, setSelectionAction] = useState<SelectionState | null>(null)
   const panelOpen = panelQuery !== null
+
+  // 朗读：逐句播报，当前句用 ReaderText 的 highlightText 高亮。
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null)
+  const [paused, setPaused] = useState(false)
+  const [voiceMissing, setVoiceMissing] = useState(false)
+  const playerRef = useRef<PassageController | null>(null)
+  const sentences = useMemo(() => splitSentences(article.text), [article.text])
+
+  // Leaving the article (or the page) must not keep talking.
+  useEffect(() => {
+    return () => {
+      playerRef.current?.stop()
+      playerRef.current = null
+    }
+  }, [article.id])
+
+  // Follow the sentence being read.
+  useEffect(() => {
+    if (speakingIndex === null) return
+    const node = articleRef.current?.querySelector('.reader-sentence')
+    node?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [speakingIndex])
+
+  const stopSpeaking = useCallback(() => {
+    playerRef.current?.stop()
+    playerRef.current = null
+    setSpeakingIndex(null)
+    setPaused(false)
+  }, [])
+
+  const startSpeaking = useCallback(() => {
+    setVoiceMissing(false)
+    setPaused(false)
+    playerRef.current = speakPassage(article.text, {
+      accent,
+      rate,
+      onSentence: (index) => setSpeakingIndex(index),
+      onEnd: () => {
+        setSpeakingIndex(null)
+        setPaused(false)
+      },
+      onUnavailable: () => {
+        setSpeakingIndex(null)
+        setVoiceMissing(true)
+      },
+    })
+  }, [accent, rate, article.text])
+
+  const toggleSpeaking = useCallback(() => {
+    if (speakingIndex === null) {
+      startSpeaking()
+      return
+    }
+    if (paused) {
+      playerRef.current?.resume()
+      setPaused(false)
+    } else {
+      playerRef.current?.pause()
+      setPaused(true)
+    }
+  }, [speakingIndex, paused, startSpeaking])
 
   // 词条只在查询时记录 query，词典加载完成后自动按最新词典重算。
   const panel = useMemo<ReaderLookup | null>(() => {
@@ -444,6 +506,32 @@ function ReaderView({
             <button
               type="button"
               className="icon-button h-8 w-8"
+              onClick={toggleSpeaking}
+              aria-label={speakingIndex === null ? '朗读全文' : paused ? '继续朗读' : '暂停朗读'}
+              title={speakingIndex === null ? '朗读全文' : paused ? '继续朗读' : '暂停朗读'}
+            >
+              {speakingIndex !== null && !paused ? (
+                <Pause size={14} strokeWidth={1.8} />
+              ) : (
+                <Play size={14} strokeWidth={1.8} />
+              )}
+            </button>
+            {speakingIndex !== null && (
+              <button
+                type="button"
+                className="icon-button h-8 w-8"
+                onClick={stopSpeaking}
+                aria-label="停止朗读"
+                title="停止朗读"
+              >
+                <Square size={12} strokeWidth={1.8} />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-0.5 rounded-full border border-line bg-surface/70 p-0.5">
+            <button
+              type="button"
+              className="icon-button h-8 w-8"
               onClick={() => setFontSize(fontSize - 1)}
               disabled={fontSize <= 16}
               aria-label="缩小字号"
@@ -528,12 +616,21 @@ function ReaderView({
               </div>
             )}
 
+            {voiceMissing && (
+              <p className="mt-5 rounded-xl border border-accent/25 bg-accent-wash px-4 py-3 text-[11px] leading-relaxed text-accent">
+                这台设备没有英文语音，整篇朗读用不了（不会拿中文语音去念英文）。单词仍然能听——查词时会改用在线发音。
+              </p>
+            )}
+
             <div className="pt-8">
               <ReaderText
                 text={article.text}
                 fontSize={fontSize}
                 activeToken={activeToken}
                 focusToken={focusToken}
+                highlightText={
+                  speakingIndex === null ? null : (sentences[speakingIndex]?.text ?? null)
+                }
               />
             </div>
 

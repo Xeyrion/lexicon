@@ -8,6 +8,7 @@ import { ArticleCard } from '../components/reader/ArticleCard'
 import { ArticleComposer } from '../components/reader/ArticleComposer'
 import { formatShortDate } from '../lib/date'
 import { readingMinutes } from '../lib/reader'
+import { useHosted } from '../lib/useHosted'
 import { useReaderHydrated } from '../lib/useReaderHydrated'
 import { useReaderProgressStore } from '../store/readerProgressStore'
 import { useReaderStore } from '../store/readerStore'
@@ -26,6 +27,7 @@ function ReadingSkeleton() {
 }
 
 export default function Reading() {
+  const hosted = useHosted()
   const hydrated = useReaderHydrated()
   const articles = useReaderStore((state) => state.articles)
   const removeArticle = useReaderStore((state) => state.removeArticle)
@@ -59,7 +61,9 @@ export default function Reading() {
       <PageHeader
         eyebrow="Reading"
         title="阅读"
-        description="把文章放进来，慢慢读。悬停看词义，点击固定词条，选中多个词可以查短语。文章保存在本机本地文件中。"
+        description={`把文章放进来，慢慢读。悬停看词义，点击固定词条，选中多个词可以查短语。文章保存在${
+          hosted ? '这台浏览器里' : '本机本地文件中'
+        }。`}
         actions={
           articles.length > 0 && !composing ? (
             <button type="button" className="btn btn-primary" onClick={() => setComposing(true)}>

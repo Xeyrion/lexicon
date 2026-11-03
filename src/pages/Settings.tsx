@@ -56,6 +56,7 @@ export default function Settings() {
   // A hosted copy has no data directory to show; the panel swaps to a note
   // about browser storage instead of reporting a failed request.
   const [backend, setBackend] = useState<Backend | null>(null)
+  const hosted = backend === 'idb'
   useEffect(() => {
     let alive = true
     void detectBackend().then((value) => {
@@ -117,7 +118,9 @@ export default function Settings() {
       <PageHeader
         eyebrow="Preferences"
         title="设置"
-        description="调成你习惯的节奏。所有设置与学习记录都保存在本机本地文件中。"
+        description={`调成你习惯的节奏。所有设置与学习记录都保存在${
+          hosted ? '这台浏览器里' : '本机本地文件中'
+        }。`}
       />
 
       {message && (
