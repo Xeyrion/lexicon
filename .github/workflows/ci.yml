@@ -1,0 +1,41 @@
+name: Check
+
+# The pages workflow only proves the app builds. This one proves it is still
+# correct: lint, types, the unit/integration suite, and the docs drift check.
+# `npm test` runs `pretest` -> scripts/check-docs.mjs, so the docs check comes
+# along for free and does not need its own step.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an older run pointless.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      # `tsc -b` alone would miss bundling problems (bad import, PWA manifest),
+      # so this is the same command the release build uses.
+      - run: npm run build
+
+      - run: npm test
