@@ -70,23 +70,11 @@ export function VoicePanel({ accent, rate }: { accent: Accent; rate: number }) {
         <p className="mt-3 text-[10px] text-faint">正在读取系统语音…</p>
       )}
 
-      {all !== null && voices !== null && voices.length === 0 && (
-        <div className="mt-3 rounded-xl border border-accent/25 bg-accent-wash px-3 py-2.5 text-[10px] leading-relaxed text-accent">
-          <p className="font-medium">
-            浏览器报告了 {all.length} 个语音，其中英文 0 个。
-          </p>
-          {all.length > 0 && (
-            <p className="mt-1 opacity-80">
-              看到的是：{all.slice(0, 6).map((voice) => `${voice.name} (${voice.lang})`).join('、')}
-            </p>
-          )}
+      {all !== null && voices !== null && voices.length === 0 && all.length === 0 && (
+        <div className="mt-3 rounded-xl border border-line bg-paper-deep/40 px-3 py-2.5 text-[10px] leading-relaxed text-muted">
+          <p className="font-medium text-ink">浏览器没有报告任何语音。</p>
           <p className="mt-1">
-            {all.length === 0
-              ? '一个都没看到，说明浏览器没接上系统的语音引擎。安卓请到「文字转语音输出」确认引擎已安装英文语音包，然后完全关掉浏览器再打开。'
-              : '引擎在，但缺英文包。安卓：设置 → 辅助功能 → 文字转语音输出 → 引擎设置 → 安装语音数据 → English。'}
-          </p>
-          <p className="mt-1 opacity-80">
-            iPhone：设置 → 辅助功能 → 朗读内容 → 声音 → 英语。Windows / macOS 的路径见 README。
+            安卓上很常见：系统的语音引擎能用，只是不向浏览器列举。点下面的「试听这句」确认能不能出声。
           </p>
           <button
             type="button"
@@ -101,7 +89,32 @@ export function VoicePanel({ accent, rate }: { accent: Accent; rate: number }) {
         </div>
       )}
 
-      {voices !== null && voices.length > 0 && (
+      {all !== null && voices !== null && voices.length === 0 && all.length > 0 && (
+        <div className="mt-3 rounded-xl border border-accent/25 bg-accent-wash px-3 py-2.5 text-[10px] leading-relaxed text-accent">
+          <p className="font-medium">
+            浏览器报告了 {all.length} 个语音，其中英文 0 个。
+          </p>
+          <p className="mt-1 opacity-80">
+            看到的是：{all.slice(0, 6).map((voice) => `${voice.name} (${voice.lang})`).join('、')}
+          </p>
+          <p className="mt-1">
+            引擎在，但缺英文包。安卓：设置 → 辅助功能 → 文字转语音输出 → 引擎设置 → 安装语音数据 →
+            English。iPhone：设置 → 辅助功能 → 朗读内容 → 声音 → 英语。
+          </p>
+          <button
+            type="button"
+            className="btn btn-ghost mt-2 text-[11px]"
+            onClick={() => {
+              setAll(null)
+              setNonce((value) => value + 1)
+            }}
+          >
+            重新检测
+          </button>
+        </div>
+      )}
+
+      {voices !== null && (voices.length > 0 || all?.length === 0) && (
         <div className="mt-3 flex items-center gap-3">
           <button
             type="button"

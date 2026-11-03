@@ -476,3 +476,31 @@
 - `InlineWords` 渲染的是 `<span>`，嵌在 `<button>` 里合法，不需要改标签。
 
 实测：卡片内 7 个可点词；点 `Born` 打开词条（显示 `bear`——词典把过去分词归到原形，属预期），计数仍是 `已选 0 / 3`；点等级徽章（非单词）计数变 `1 / 3`。
+
+### 手机上「0 个语音」但系统其实能发声
+
+用户把默认引擎换成 Google 语音后仍然不响。上机核对：
+
+```
+settings get secure tts_default_synth → com.hihonor.voiceengine（并不是 Google）
+pm list packages                     → com.google.android.tts 已安装
+浏览器 getVoices()                    → 0，voiceschanged 也是 0
+```
+
+手动 `settings put secure tts_default_synth com.google.android.tts` 并 `am force-stop` 重启浏览器后，**仍然是 0**。
+
+于是写了一个探针页，在真机上直接 `speak()` 一个不带 `voice` 的 utterance：
+
+```
+voices now: 0
+--- speak (no voice set) ---
+onstart
+t+3s speaking=true pending=false
+onend
+```
+
+**结论：安卓的 Chromium 根本不列举语音，但 `speak()` 照常工作**——它会交给系统默认引擎。之前「拿不到英语语音就静音」的判断在桌面成立，在安卓上是错的，等于把能用的功能关掉了。
+
+- `speak()`：列表为空时不再返回 false，改成设置 `utterance.lang`（`en-US` / `en-GB`）让平台自己选引擎；列表非空但没有英文时才继续静音（避免中文语音念英文）。
+- `speakPassage()`：同理，`onUnavailable` 只在「有语音但没英文」时触发，整段朗读在安卓上恢复。
+- `VoicePanel`：0 个语音时不再报错，改成说明「安卓不列举语音，点试听确认」，并保留试听按钮。

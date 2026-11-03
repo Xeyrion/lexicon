@@ -133,12 +133,20 @@ class WebSpeechProvider implements SpeechProvider {
       options.accent,
       options.voiceURI === undefined ? getPreferredVoiceURI() : options.voiceURI,
     )
-    // No English voice means a Chinese voice would read English with the wrong
-    // phonetics. Say so by returning false; the caller can try a recording.
-    if (!voice) return false
+    // Voices exist but none in English: a Chinese voice would read English with
+    // the wrong phonetics, so staying silent is the honest answer.
+    if (!voice && voices.length > 0) return false
+
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.voice = voice
-    utterance.lang = voice.lang
+    if (voice) {
+      utterance.voice = voice
+      utterance.lang = voice.lang
+    } else {
+      // Android reports an empty voice list even though speak() works through
+      // the system engine. Asking for the language and letting the platform
+      // choose is the only way to get sound on those devices.
+      utterance.lang = options.accent === 'uk' ? 'en-GB' : 'en-US'
+    }
     utterance.rate = Math.min(1.5, Math.max(0.5, options.rate ?? 1))
     utterance.pitch = 1
 
@@ -310,19 +318,23 @@ export function speakPassage(text: string, options: PassageOptions): PassageCont
       options.accent,
       options.voiceURI === undefined ? getPreferredVoiceURI() : options.voiceURI,
     )
-    if (!voice) {
+    if (!voice && voices.length > 0) {
+      // Voices exist but none English: do not fake it with a Chinese voice.
       stopped = true
       options.onSentence?.(null)
       options.onUnavailable?.()
       return
     }
+    // With an empty list we still try: Android speaks through the system engine
+    // and simply does not enumerate voices.
+    const lang = voice?.lang ?? (options.accent === 'uk' ? 'en-GB' : 'en-US')
 
     for (let index = 0; index < sentences.length; index += 1) {
       if (stopped) return
       await new Promise<void>((resolve) => {
         const utterance = new SpeechSynthesisUtterance(sentences[index].text)
-        utterance.voice = voice
-        utterance.lang = voice.lang
+        if (voice) utterance.voice = voice
+        utterance.lang = lang
         utterance.rate = Math.min(1.5, Math.max(0.5, options.rate ?? 1))
         utterance.pitch = 1
         utterance.onstart = () => options.onSentence?.(index)
