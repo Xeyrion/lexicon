@@ -600,15 +600,35 @@ function RemakeGame() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {drawn.map((id) => {
+            {drawn.map((id, cardIndex) => {
               const talent = talents.get(id)
               if (!talent) return null
               const active = selected.includes(id)
+              // Each card owns its own paragraph range so a highlight cannot land
+              // on another card. 5000+ sits clear of the log's per-line 0–99.
+              const nameParagraph = 5000 + cardIndex * 4
+              const descParagraph = nameParagraph + 1
+              const english = locale === 'en'
               return (
                 <button
                   key={id}
                   type="button"
-                  onClick={() => toggleTalent(id)}
+                  onClick={(event) => {
+                    // A word is a lookup, anything else on the card is a pick.
+                    const word = (event.target as HTMLElement).closest<HTMLElement>(
+                      '[data-word]',
+                    )
+                    const raw = word?.dataset.word
+                    if (raw) {
+                      setPanelQuery(raw)
+                      setActiveToken({
+                        paragraph: Number(word.dataset.paragraph),
+                        token: Number(word.dataset.token),
+                      })
+                      return
+                    }
+                    toggleTalent(id)
+                  }}
                   className={`rounded-2xl border p-4 text-left transition-colors ${
                     active
                       ? 'border-accent/60 bg-accent-wash'
@@ -616,10 +636,14 @@ function RemakeGame() {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm text-ink">{talentName(id)}</span>
+                    <span className="text-sm text-ink">
+                      {nameWords(talentName(id), nameParagraph, english)}
+                    </span>
                     <span className="chip">{GRADE_LABEL[talent.grade] ?? '普通'}</span>
                   </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-muted">{talentDesc(id)}</p>
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                    {nameWords(talentDesc(id), descParagraph, english)}
+                  </p>
                   <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] text-faint">
                     {talent.points ? <span>+{talent.points} 属性点</span> : null}
                     {talent.condition ? <span>条件触发</span> : null}
