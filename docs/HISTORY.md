@@ -567,3 +567,26 @@ onend
 - `oxlint` 164 文件 0 warning 0 error；`tsc -b` 通过；`vitest` 全绿；`vite build` 成功，`dist/sw.js` 里两个 handler 都是 `StaleWhileRevalidate`。
 - 词典重建用固定 commit 的 ECDICT（本地缓存）与 ipa-dict 源，产物可复现。
 - 重建前后逐词比对：丢失 0、既有译文改动 0。
+
+## 2026-11-03 把一局游戏收成一个状态对象
+
+`Remake.tsx` 里一局人生被拆成 13 个 `useState`：step、rules、seed、rerollsLeft、drawn、selected、finalTalents、bonus、alloc、game、logs、ended、summary。于是有三份手写清单必须同步——`begin()` 里 12 个 setter、`restart()` 里 9 个、`resume()` 里 12 个，外加自动保存 effect 里 13 个键的对象字面量和 13 项依赖数组。加一个字段要改四处；漏掉自动保存那处不会报错，只会在恢复存档时发现字段没了。
+
+现在是一个 `RunState`：
+
+- `model.ts` 新增 `RunState` / `initialRun()` / `toSavedRun()` / `fromSavedRun()`。`RunState` 是"一局人生"的唯一定义，`SavedRun` 退化为它的线上格式。
+- `restart()` 变成 `setRun(initialRun(rules))` 一行，`resume()` 变成 `fromSavedRun(saved)` 一行，自动保存 effect 的依赖数组只剩 `[run, saveRun]`。
+- 字段列表只存在于 `toSavedRun()` 一处；加字段时 TypeScript 会逼你补上，而不是等你某天发现存档少了东西。
+- 顺带把 `finish()` 里的成就合并提成 `mergeAchievementMeta()`（纯函数，可测），`SPIRIT_BASE` 从组件挪进 `model.ts` 与 `sanitizeAllocation` 共用。
+
+组件仍剩 10 个 `useState`，但都是真正的界面状态（天赋选择器、自动播放开关与速度、查词面板），不再混着存档字段。行数只从 1093 降到 1046——这一步的收益是"只有一处定义"，不是行数；按 step 拆视图是下一步。
+
+### 新增 `scripts/smoke-game.mjs`
+
+仓库有 reader / app / books / stories 四个冒烟脚本，唯独游戏没有，而这次动的正是游戏的存档与恢复。脚本跑完一整局：开局 → 抽天赋 → 分配 → 逐年推进 → 中局刷新恢复（校验年龄接着走）→ 人生总结（校验成就写进 profile）→ 回到开头（校验存档被清掉）。入口是 `npm run smoke:game`，和另外四个一样需要先起服务。
+
+### 验证
+
+- `vitest` 全绿，其中 `run.test.ts` 新增 9 个：`initialRun` 的默认值、home 不落盘、`toSavedRun`/`fromSavedRun` 全字段往返、Set/Map 摊平、成就合并的四条规则（新增 / 保留首次时间 / 自定义升级为标准 / 不反向降级）。
+- `scripts/smoke-game.mjs` 在 preview 构建上跑通：43 岁的一生、47 条日志、存档字段齐全、中局恢复年龄 1 → 2、总结评分一致、回到开头后 `runs.remake` 消失。
+- oxlint 0 warning 0 error。重构中途 `finish()` 引用了声明在它后面的 `newAchievements`，React Compiler 因此报 purity 与 preserve-manual-memoization 两条警告；把两个 `useMemo` 提到 `finish` 之前即消除。

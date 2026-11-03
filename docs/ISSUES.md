@@ -317,6 +317,7 @@
 - 现象：`Settings.tsx` 已涨到 1221 行，混着展示、状态、服务端交互和弹窗。
 - 处理：`Settings.tsx` 1221 → 399 行。拆出 `components/settings/primitives.tsx`（Section/Toggle/Segmented）、`constants.ts`（STORAGE_FILES）、`format.ts`（formatBytes/formatBackupTime）、`LocalDataPanel.tsx`、`BackupPanel.tsx`、`dialogs.tsx`（恢复/清空全部/清空进度），以及 `hooks/useStorageData.ts`（数据目录、备份列表、导出/导入/隔离/恢复的状态与处理）。只搬不改逻辑，顺手消掉了那条 `set-state-in-effect` 警告（挂载时不再同步置 loading，初始值直接为 true）。
 - 备注：`Study.tsx`、`Reader.tsx`、`server/dataStorage.ts` 已在 2026-11-01 拆分，见 `docs/HISTORY.md`「第十批」。
+- 备注：`Remake.tsx` 的一局状态已在 2026-11-03 收敛成单个 `RunState`（13 个 `useState` → 1 个），存档与恢复不再靠三份手写清单同步；**按 step 拆视图还没做**，文件仍有约 1000 行。
 
 ### 41. 仓库卫生与版本控制
 - 状态：`已修`（已初始化 Git，已纳入 `public/data`，已添加 MIT LICENSE）
