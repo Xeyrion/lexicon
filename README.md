@@ -206,6 +206,7 @@ npm run smoke:reader # 无头 Chrome 跑一遍阅读页（需先启动 dev 服�
 npm run smoke:app    # 首启引导 / 键盘查词 / 时间异常提示（加 --force-clean 会清数据）
 npm run smoke:books  # 造一本 EPUB 走完导入、改目录、章节阅读与跳转
 npm run smoke:stories # 内置短篇玩到结局、撤销一步、检查图鉴解锁
+npm run smoke:game   # 玩完一整局：存档字段、中局恢复、总结与成就、回到开头
 npm run story:check  # 校验一个故事 JSON（作者用）
 npm run story:map    # 打印故事分支树（作者用）
 npm run shots        # 重生成 docs/images 截图（会清空数据目录，只对临时目录用）

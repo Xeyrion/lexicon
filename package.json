@@ -30,6 +30,7 @@
     "smoke:app": "node scripts/smoke-app.mjs",
     "smoke:books": "node scripts/smoke-books.mjs",
     "smoke:stories": "node scripts/smoke-stories.mjs",
+    "smoke:game": "node scripts/smoke-game.mjs",
     "story:check": "node scripts/story-tools.mjs check",
     "story:map": "node scripts/story-tools.mjs map",
     "shots": "node scripts/screenshots.mjs"
