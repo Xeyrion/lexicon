@@ -34,6 +34,9 @@ export const SPEED_PRESETS = [1, 2, 3, 5, 10, 20] as const
 export const MIN_SPEED = 0.5
 export const MAX_SPEED = 20
 
+/** A new life starts with one point of spirit already allocated. */
+export const SPIRIT_BASE = 5
+
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   locale: 'en',
   speed: 1,
@@ -260,7 +263,7 @@ function sanitizeAllocation(value: unknown): Allocation {
     intelligence: read('intelligence'),
     strength: read('strength'),
     money: read('money'),
-    spirit: read('spirit', 5),
+    spirit: read('spirit', SPIRIT_BASE),
   }
 }
 
@@ -304,4 +307,130 @@ export function sanitizeRun(value: unknown): SavedRun | null {
     ended: source.ended === true,
     summary,
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * The run, in memory
+ * ------------------------------------------------------------------ */
+
+export type RunStep = 'home' | SavedStep
+
+export type RunSummary = { score: number; achievements: number[] }
+
+/**
+ * Everything one life consists of, as a single value.
+ *
+ * This used to be thirteen `useState` hooks, which meant "reset the run" was a
+ * nine-line list of setters, "restore the run" a twelve-line list, and the
+ * autosave effect a thirteen-key object plus a thirteen-item dependency array —
+ * three hand-maintained lists that had to stay in step with `SavedRun`. Adding
+ * a field and forgetting one of them lost it silently. One object means one
+ * place to add it and `{ ...previous, ... }` everywhere else.
+ *
+ * `error` is here but not in `SavedRun`: it describes a failure of the current
+ * session, not something worth restoring.
+ */
+export interface RunState {
+  step: RunStep
+  rules: GameRules
+  seed: number
+  rerollsLeft: number
+  drawn: number[]
+  selected: number[]
+  finalTalents: number[]
+  bonus: number
+  alloc: Allocation
+  game: GameState | null
+  logs: SavedLogEntry[]
+  ended: boolean
+  error: string | null
+  summary: RunSummary | null
+}
+
+/** The home screen: no life in flight. */
+export function initialRun(rules: GameRules): RunState {
+  return {
+    step: 'home',
+    rules,
+    seed: 0,
+    rerollsLeft: 0,
+    drawn: [],
+    selected: [],
+    finalTalents: [],
+    bonus: 0,
+    alloc: { charm: 0, intelligence: 0, strength: 0, money: 0, spirit: SPIRIT_BASE },
+    game: null,
+    logs: [],
+    ended: false,
+    error: null,
+    summary: null,
+  }
+}
+
+/**
+ * The wire form, or `null` on the home screen — there is no run to resume yet,
+ * and storing one would make the home screen offer "继续这一局" for a life that
+ * never started.
+ */
+export function toSavedRun(run: RunState, rngState: number): SavedRun | null {
+  if (run.step === 'home') return null
+  return {
+    step: run.step,
+    savedAt: new Date().toISOString(),
+    rules: run.rules,
+    seed: run.seed,
+    rngState,
+    rerollsLeft: run.rerollsLeft,
+    drawn: run.drawn,
+    selected: run.selected,
+    finalTalents: run.finalTalents,
+    bonus: run.bonus,
+    alloc: run.alloc,
+    logs: run.logs,
+    game: run.game ? serializeGame(run.game) : null,
+    ended: run.ended,
+    summary: run.summary,
+  }
+}
+
+export function fromSavedRun(saved: SavedRun): RunState {
+  return {
+    step: saved.step,
+    rules: saved.rules,
+    seed: saved.seed,
+    rerollsLeft: saved.rerollsLeft,
+    drawn: saved.drawn,
+    selected: saved.selected,
+    finalTalents: saved.finalTalents,
+    bonus: saved.bonus,
+    alloc: saved.alloc,
+    game: saved.game ? deserializeGame(saved.game) : null,
+    logs: saved.logs,
+    ended: saved.ended,
+    error: null,
+    summary: saved.summary,
+  }
+}
+
+/**
+ * Fold the achievements of a finished run into the profile's unlock table.
+ *
+ * A standard run upgrades an achievement first earned in a custom run, but not
+ * the other way round, and the first-earned timestamp is kept either way — the
+ * achievement list shows when it was really first seen.
+ */
+export function mergeAchievementMeta(
+  existing: Record<number, AchievementMeta>,
+  ids: Iterable<number>,
+  mode: AchievementMeta['mode'],
+  at: string,
+): Record<number, AchievementMeta> {
+  const merged = { ...existing }
+  for (const id of new Set(ids)) {
+    const previous = merged[id]
+    if (!previous || (previous.mode === 'custom' && mode === 'standard')) {
+      merged[id] = { mode, at: previous?.at ?? at }
+    }
+  }
+  return merged
 }

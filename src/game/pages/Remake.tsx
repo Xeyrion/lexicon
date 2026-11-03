@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronRight, Pause, Play, RefreshCw, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Trophy } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { end, next, pick, pull, start, summary } from '@remake/core'
-import type { Allocation, GameState, ProfileState } from '@remake/core'
+import type { Allocation, ProfileState } from '@remake/core'
 import { achievements as achievementTable, events, talents } from '@remake/data'
 import type { TalentGrade } from '@remake/data'
 import type { RNG } from '@remake/vitex'
@@ -17,25 +17,20 @@ import { enAchievements, enEvents, enPosts, enTalents } from '../i18n/en'
 import {
   EMPTY_PROFILE,
   SPEED_PRESETS,
-  deserializeGame,
+  SPIRIT_BASE,
   fromProfileState,
-  serializeGame,
+  fromSavedRun,
+  initialRun,
+  mergeAchievementMeta,
   shownAge,
   toProfileState,
+  toSavedRun,
   type GameLocale,
+  type RunState,
 } from '../model'
 import { effectiveRules } from '../rules'
 import { randomSeed, seeded, type SeededRNG } from '../rng'
 import { useGameHydrated } from '../useGameHydrated'
-
-type Step = 'home' | 'talents' | 'alloc' | 'play' | 'summary'
-
-interface LogEntry {
-  age: number
-  events: number[]
-  talents: number[]
-  achievements: number[]
-}
 
 const ATTRS: { key: keyof Allocation; label: string }[] = [
   { key: 'charm', label: '颜值' },
@@ -44,8 +39,6 @@ const ATTRS: { key: keyof Allocation; label: string }[] = [
   { key: 'money', label: '家境' },
   { key: 'spirit', label: '快乐' },
 ]
-
-const SPIRIT_BASE = 5
 
 const GRADE_LABEL = ['普通', '稀有', '史诗', '传说']
 
@@ -56,7 +49,6 @@ export default function Remake() {
 }
 
 function RemakeGame() {
-  const [step, setStep] = useState<Step>('home')
   const profile = useGameStore((state) => state.profiles.remake) ?? EMPTY_PROFILE
   const savedRun = useGameStore((state) => state.runs.remake)
   const saveProfile = useGameStore((state) => state.setProfile)
@@ -67,31 +59,32 @@ function RemakeGame() {
   const applyLocale = useGameStore((state) => state.setLocale)
   const applySpeed = useGameStore((state) => state.setSpeed)
   // Rules are snapshotted at mount: changing them must not alter a run in flight.
-  const [rules, setRules] = useState(() => effectiveRules(useGameStore.getState().settings.rules))
-  const [rerollsLeft, setRerollsLeft] = useState(0)
+  const [run, setRun] = useState<RunState>(() =>
+    initialRun(effectiveRules(useGameStore.getState().settings.rules)),
+  )
+  // Read-only view of the run. Destructured so the JSX below stays unchanged;
+  // every write goes through `setRun` with a patch.
+  const {
+    step,
+    rules,
+    seed,
+    rerollsLeft,
+    drawn,
+    selected,
+    finalTalents,
+    bonus,
+    alloc,
+    game,
+    logs,
+    ended,
+    error,
+    summary: summaryResult,
+  } = run
+
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerSelected, setPickerSelected] = useState<number[]>([])
   const [pickerQuery, setPickerQuery] = useState('')
-  const [drawn, setDrawn] = useState<number[]>([])
-  const [selected, setSelected] = useState<number[]>([])
-  const [finalTalents, setFinalTalents] = useState<number[]>([])
-  const [bonus, setBonus] = useState(0)
-  const [alloc, setAlloc] = useState<Allocation>({
-    charm: 0,
-    intelligence: 0,
-    strength: 0,
-    money: 0,
-    spirit: SPIRIT_BASE,
-  })
-  const [game, setGame] = useState<GameState | null>(null)
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [ended, setEnded] = useState(false)
   const [auto, setAuto] = useState(false)
-  const [seed, setSeed] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const [summaryResult, setSummaryResult] = useState<{ score: number; achievements: number[] } | null>(
-    null,
-  )
   const rngRef = useRef<SeededRNG | null>(null)
 
   const profileState = useMemo<ProfileState>(() => toProfileState(profile), [profile])
@@ -201,37 +194,40 @@ function RemakeGame() {
     const nextSeed = randomSeed()
     const rng = seeded(nextSeed)
     rngRef.current = rng
-    setSeed(nextSeed)
-    setDrawn(drawTalents(rng))
-    setSelected([])
-    setFinalTalents([])
-    setBonus(0)
-    setGame(null)
-    setLogs([])
-    setEnded(false)
+    // A new life starts from a clean slate; only the rules carry over.
+    setRun({
+      ...initialRun(rules),
+      step: 'talents',
+      seed: nextSeed,
+      drawn: drawTalents(rng),
+      rerollsLeft: rules.rerolls,
+    })
     setAuto(false)
-    setError(null)
-    setSummaryResult(null)
-    setRerollsLeft(rules.rerolls)
     setPickerOpen(false)
     setPickerSelected([])
     setPickerQuery('')
-    setStep('talents')
   }
 
   const reroll = () => {
     if (rerollsLeft <= 0) return
     const rng = rngRef.current ?? seeded(seed)
-    setDrawn(drawTalents(rng))
-    setSelected([])
-    setRerollsLeft((value) => value - 1)
+    const nextDrawn = drawTalents(rng)
+    setRun((previous) => ({
+      ...previous,
+      drawn: nextDrawn,
+      selected: [],
+      rerollsLeft: previous.rerollsLeft - 1,
+    }))
   }
 
   const toggleTalent = (id: number) => {
-    setSelected((previous) => {
-      if (previous.includes(id)) return previous.filter((item) => item !== id)
-      if (previous.length >= rules.pickCount) return previous
-      return [...previous, id]
+    setRun((previous) => {
+      const picked = previous.selected
+      if (picked.includes(id)) {
+        return { ...previous, selected: picked.filter((item) => item !== id) }
+      }
+      if (picked.length >= rules.pickCount) return previous
+      return { ...previous, selected: [...picked, id] }
     })
   }
 
@@ -256,25 +252,21 @@ function RemakeGame() {
 
   const confirmPicker = () => {
     if (pickerSelected.length !== rules.pickCount) return
-    setDrawn([...pickerSelected])
-    setSelected([...pickerSelected])
+    const picked = [...pickerSelected]
+    setRun((previous) => ({ ...previous, drawn: picked, selected: picked }))
     setPickerOpen(false)
   }
 
   const confirmTalents = () => {
     const rng = rngRef.current ?? seeded(seed)
     const result = pick(selected, rng)
-    const list = [...result.talents.talents]
-    setFinalTalents(list)
-    setBonus(result.additionalPoints.points)
-    setAlloc({
-      charm: 0,
-      intelligence: 0,
-      strength: 0,
-      money: 0,
-      spirit: SPIRIT_BASE,
-    })
-    setStep('alloc')
+    setRun((previous) => ({
+      ...previous,
+      finalTalents: [...result.talents.talents],
+      bonus: result.additionalPoints.points,
+      alloc: { charm: 0, intelligence: 0, strength: 0, money: 0, spirit: SPIRIT_BASE },
+      step: 'alloc',
+    }))
   }
 
   const totalPoints = rules.points + bonus
@@ -282,44 +274,48 @@ function RemakeGame() {
   const remaining = totalPoints - spent
 
   const adjust = (key: keyof Allocation, delta: 1 | -1) => {
-    setAlloc((previous) => {
+    setRun((previous) => {
+      const current = previous.alloc
       const floor = key === 'spirit' ? SPIRIT_BASE : 0
-      if (delta > 0 && (remaining <= 0 || previous[key] >= rules.allocLimit)) return previous
-      if (delta < 0 && previous[key] <= floor) return previous
-      return { ...previous, [key]: previous[key] + delta }
+      if (delta > 0 && (remaining <= 0 || current[key] >= rules.allocLimit)) return previous
+      if (delta < 0 && current[key] <= floor) return previous
+      return { ...previous, alloc: { ...current, [key]: current[key] + delta } }
     })
   }
 
   const setAllocValue = (key: keyof Allocation, value: number) => {
-    setAlloc((previous) => {
+    setRun((previous) => {
+      const current = previous.alloc
       const floor = key === 'spirit' ? SPIRIT_BASE : 0
       const target = Math.max(floor, Math.min(rules.allocLimit, Math.round(value)))
-      const delta = target - previous[key]
+      const delta = target - current[key]
       if (delta > 0) {
-        const spentNow =
-          ATTRS.reduce((sum, item) => sum + previous[item.key], 0) - SPIRIT_BASE
+        const spentNow = ATTRS.reduce((sum, item) => sum + current[item.key], 0) - SPIRIT_BASE
         if (delta > totalPoints - spentNow) return previous
       }
-      return { ...previous, [key]: target }
+      return { ...previous, alloc: { ...current, [key]: target } }
     })
   }
 
   const beginRun = () => {
     const result = start(profileState, alloc, finalTalents)
-    setGame(result.state)
-    setLogs([
-      {
-        age: -1,
-        events: [],
-        talents: finalTalents,
-        achievements: result.achievements,
-      },
-    ])
-    setEnded(false)
+    setRun((previous) => ({
+      ...previous,
+      game: result.state,
+      logs: [
+        {
+          age: -1,
+          events: [],
+          talents: finalTalents,
+          achievements: result.achievements,
+        },
+      ],
+      ended: false,
+      summary: null,
+      error: null,
+      step: 'play',
+    }))
     setAuto(false)
-    setSummaryResult(null)
-    setError(null)
-    setStep('play')
   }
 
   const advance = useCallback(() => {
@@ -327,23 +323,27 @@ function RemakeGame() {
     const rng = rngRef.current ?? seeded(seed)
     try {
       const result = next(game, profileState, rng)
-      setGame(result.state)
-      setLogs((previous) => [
+      setRun((previous) => ({
         ...previous,
-        {
-          age: result.age,
-          events: result.events,
-          talents: result.talents,
-          achievements: result.achievements,
-        },
-      ])
-      if (result.end) {
-        setEnded(true)
-        setAuto(false)
-      }
+        game: result.state,
+        logs: [
+          ...previous.logs,
+          {
+            age: result.age,
+            events: result.events,
+            talents: result.talents,
+            achievements: result.achievements,
+          },
+        ],
+        ended: result.end ? true : previous.ended,
+      }))
+      if (result.end) setAuto(false)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '这一局走不下去了')
-      setEnded(true)
+      setRun((previous) => ({
+        ...previous,
+        error: reason instanceof Error ? reason.message : '这一局走不下去了',
+        ended: true,
+      }))
       setAuto(false)
     }
   }, [ended, game, profileState, seed])
@@ -365,115 +365,6 @@ function RemakeGame() {
     return () => window.removeEventListener('keydown', onKey)
   }, [advance, ended, step])
 
-  const finish = () => {
-    if (!game) return
-    const result = summary(game, profileState)
-    const finished = end(game, profileState)
-    const nextProfile = fromProfileState(finished.profile)
-    const meta = { ...(profile.achievementMeta ?? {}) }
-    const runIds = new Set<number>()
-    for (const log of logs) for (const id of log.achievements) runIds.add(id)
-    for (const id of result.achievements) runIds.add(id)
-    for (const id of finished.achievements) runIds.add(id)
-    for (const id of runIds) {
-      const existing = meta[id]
-      if (!existing || (existing.mode === 'custom' && rules.preset === 'standard')) {
-        meta[id] = { mode: rules.preset, at: existing?.at ?? new Date().toISOString() }
-      }
-    }
-    nextProfile.achievementMeta = meta
-    saveProfile('remake', nextProfile)
-    setSummaryResult({
-      score: result.summary,
-      achievements: [...new Set([...result.achievements, ...finished.achievements])],
-    })
-    setAuto(false)
-    setStep('summary')
-  }
-
-  const restart = () => {
-    setStep('home')
-    setGame(null)
-    setLogs([])
-    setEnded(false)
-    setAuto(false)
-    setSummaryResult(null)
-    setDrawn([])
-    setSelected([])
-    setFinalTalents([])
-    setError(null)
-    clearRun('remake')
-  }
-
-  const resume = () => {
-    const saved = useGameStore.getState().runs.remake
-    if (!saved) return
-    const restored = saved.game ? deserializeGame(saved.game) : null
-    if (saved.step === 'play' && !restored) {
-      clearRun('remake')
-      return
-    }
-    // Restoring the RNG position keeps the rest of the run identical to what
-    // it would have been without the interruption.
-    rngRef.current = seeded(saved.rngState)
-    setRules(saved.rules)
-    setSeed(saved.seed)
-    setDrawn(saved.drawn)
-    setSelected(saved.selected)
-    setFinalTalents(saved.finalTalents)
-    setBonus(saved.bonus)
-    setAlloc(saved.alloc)
-    setRerollsLeft(saved.rerollsLeft)
-    setGame(restored)
-    setLogs(saved.logs)
-    setEnded(saved.ended)
-    setSummaryResult(saved.summary)
-    setAuto(false)
-    setError(null)
-    setStep(saved.step)
-  }
-
-  /**
-   * Persist the run as it goes. Leaving the page — by accident or on purpose —
-   * must not throw away a life that is already half lived; the home screen
-   * offers "继续这一局" instead.
-   */
-  useEffect(() => {
-    if (step === 'home') return
-    saveRun('remake', {
-      step,
-      savedAt: new Date().toISOString(),
-      rules,
-      seed,
-      rngState: rngRef.current?.getState() ?? seed,
-      rerollsLeft,
-      drawn,
-      selected,
-      finalTalents,
-      bonus,
-      alloc,
-      logs,
-      game: game ? serializeGame(game) : null,
-      ended,
-      summary: summaryResult,
-    })
-  }, [
-    alloc,
-    bonus,
-    drawn,
-    ended,
-    finalTalents,
-    game,
-    logs,
-    rerollsLeft,
-    rules,
-    saveRun,
-    seed,
-    selected,
-    step,
-    summaryResult,
-  ])
-
   const newAchievements = useMemo(() => {
     const ids = new Set<number>()
     for (const log of logs) for (const id of log.achievements) ids.add(id)
@@ -484,6 +375,65 @@ function RemakeGame() {
     () => [...new Set([...newAchievements, ...(summaryResult?.achievements ?? [])])],
     [newAchievements, summaryResult],
   )
+
+  const finish = () => {
+    if (!game) return
+    const result = summary(game, profileState)
+    const finished = end(game, profileState)
+    const nextProfile = fromProfileState(finished.profile)
+    nextProfile.achievementMeta = mergeAchievementMeta(
+      profile.achievementMeta ?? {},
+      [...newAchievements, ...result.achievements, ...finished.achievements],
+      rules.preset,
+      new Date().toISOString(),
+    )
+    saveProfile('remake', nextProfile)
+    setRun((previous) => ({
+      ...previous,
+      summary: {
+        score: result.summary,
+        achievements: [...new Set([...result.achievements, ...finished.achievements])],
+      },
+      step: 'summary',
+    }))
+    setAuto(false)
+  }
+
+  const restart = () => {
+    // One line instead of a nine-item list of setters: `initialRun` is the only
+    // definition of "no run in flight", so a new field cannot be forgotten here.
+    setRun(initialRun(rules))
+    setAuto(false)
+    clearRun('remake')
+  }
+
+  const resume = () => {
+    const saved = useGameStore.getState().runs.remake
+    if (!saved) return
+    const restored = fromSavedRun(saved)
+    if (saved.step === 'play' && !restored.game) {
+      clearRun('remake')
+      return
+    }
+    // Restoring the RNG position keeps the rest of the run identical to what
+    // it would have been without the interruption.
+    rngRef.current = seeded(saved.rngState)
+    setRun(restored)
+    setAuto(false)
+  }
+
+  /**
+   * Persist the run as it goes. Leaving the page — by accident or on purpose —
+   * must not throw away a life that is already half lived; the home screen
+   * offers "继续这一局" instead.
+   *
+   * `run` is the whole dependency: `toSavedRun` owns the field list, so adding
+   * a field to the run cannot leave the autosave silently behind.
+   */
+  useEffect(() => {
+    const saved = toSavedRun(run, rngRef.current?.getState() ?? run.seed)
+    if (saved) saveRun('remake', saved)
+  }, [run, saveRun])
 
   return (
     <div className="space-y-6">
@@ -758,7 +708,11 @@ function RemakeGame() {
             <button type="button" className="btn btn-primary" onClick={beginRun}>
               开始这一生
             </button>
-            <button type="button" className="btn btn-ghost text-xs" onClick={() => setStep('talents')}>
+            <button
+              type="button"
+              className="btn btn-ghost text-xs"
+              onClick={() => setRun((previous) => ({ ...previous, step: 'talents' }))}
+            >
               返回天赋
             </button>
           </div>
